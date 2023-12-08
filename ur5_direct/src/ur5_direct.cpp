@@ -135,7 +135,7 @@ class DirectPublisher{
          * topic.
          * note that the angles must be of RADIANT type !!!
          */
-        void send_des_jstate(){
+        void send_des_jstate(Eigen::ArrayXd q_des){
             std_msgs::Float64MultiArray msg;
             //in case the gripper_sim in params.py is True we need to specify 
             //2 other values to control the gap between the gripper
@@ -207,7 +207,7 @@ class DirectPublisher{
             std::cout << "]" << std::endl;
             
             //send through topic the new joint values
-            send_des_jstate();
+            send_des_jstate(q_des);
  
             //print final q state
             ros::spinOnce();

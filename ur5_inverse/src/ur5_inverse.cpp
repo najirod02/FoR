@@ -17,6 +17,9 @@
  * the inverse kinematic problem gives more than 1 solution and the one choosed
  * in arbitrarly
  * 
+ * TODO:
+ * there is no check if a solution or all solutions contains a Nan value
+ * 
  * in case of singular configuration, an arbitrary value of the th6 will be choosed
  * 
  * in case of a point out of the work space, Nan values will be used
@@ -24,10 +27,14 @@
  * all the joint have a 360° mobility and the gripper has (only testes) 45° of opening
  * for each side 
  * 
+ * NOTE
+ * remember to set on params.py the gripper_sim flag as TRUE
+ * 
  * example of call:
  * joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"}
  * 
  * rosrun ur5_inverse ur5_inverse 0.1 -0.65 0.2 -0.4 -0.2 0.3
+ *
  */
 class InversePublisher{
 
@@ -46,7 +53,6 @@ class InversePublisher{
 
     //used to read the joint states
     Eigen::ArrayXd q;
-    Eigen::ArrayXd q_des;
     Eigen::Array3d pe;//the destination point
     Eigen::Array3d euler;//the rotation of e.e
     Eigen::Matrix3d R60;//rotation matrix of the euler angles
@@ -109,12 +115,12 @@ class InversePublisher{
             Eigen::Quaterniond q = yawAngle * pitchAngle * rollAngle;
             R60 = q.matrix();
 
-            std::cout << "R60\n " << R60 << std::endl;
+            //std::cout << "R60\n " << R60 << std::endl;
             Eigen::Affine3d hmTransf = Eigen::Affine3d::Identity();
             hmTransf.translation() = p60;
             hmTransf.linear() = R60;
             T60 = hmTransf.matrix();
-            std::cout << "T60\n" << T60 << std::endl;
+            //std::cout << "T60\n" << T60 << std::endl;
             
             //finding th1
             Eigen::Vector4d data;
@@ -223,7 +229,7 @@ class InversePublisher{
 
             double C = (pow(P31_1_1.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
             if(abs(C) > 1){
-                std::cout << "Point out of the work space";
+                std::cout << "Point out of the work space for th3_1_1\n";
                 th3_1_1_1 = NAN;
                 th3_1_1_2 = NAN;
             } else {
@@ -233,7 +239,7 @@ class InversePublisher{
 
             C = (pow(P31_1_2.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
             if(abs(C) > 1){
-                std::cout << "Point out of the work space";
+                std::cout << "Point out of the work space for th3_1_2\n";
                 th3_1_2_1 = NAN;
                 th3_1_2_2 = NAN;
             } else {
@@ -244,7 +250,7 @@ class InversePublisher{
 
             C = (pow(P31_2_1.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
             if(abs(C) > 1){
-                std::cout << "Point out of the work space";
+                std::cout << "Point out of the work space for th3_2_1\n";
                 th3_2_1_1 = NAN;
                 th3_2_1_2 = NAN;
             } else {
@@ -255,7 +261,7 @@ class InversePublisher{
 
             C = (pow(P31_2_2.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
             if(abs(C) > 1){
-                std::cout << "Point out of the work space";
+                std::cout << "Point out of the work space for th3_2_2\n";
                 th3_2_2_1 = NAN;
                 th3_2_2_2 = NAN;
             } else {
@@ -374,7 +380,7 @@ class InversePublisher{
          * topic.
          * note that the angles must be of RADIANT type !!!
          */
-        void send_des_jstate(){
+        void send_des_jstate(Eigen::ArrayXd q_des){
             std_msgs::Float64MultiArray msg;
             //in case the gripper_sim in params.py is True we need to specify 
             //2 other values to control the gap between the gripper
@@ -429,8 +435,19 @@ class InversePublisher{
 
             Eigen::MatrixXd Th = ur5Inverse(pe, R60);
 
-            //TODO: check code if it computes everything correctly
             std::cout << "Th: " << std::endl << Th << std::endl;
+
+            //we can choose an arbitrary solution from Th
+            //send through topic the new joint values
+            send_des_jstate(Th.row(0));
+
+            //print final q state
+            ros::spinOnce();
+            std::cout << "final q [ ";
+            for(int i=0; i<q.size(); ++i){
+                std::cout << q[i] << " ";
+            }
+            std::cout << "]" << std::endl;
         }
 
 };
