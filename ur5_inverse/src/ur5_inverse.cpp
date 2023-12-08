@@ -102,24 +102,29 @@ class InversePublisher{
             Eigen::MatrixXd Th(6, 8);
             
             // from euler angles to rotation matrix R60
-            R60 = Eigen::AngleAxisd(euler(0), Eigen::Vector3d::UnitZ())
-                * Eigen::AngleAxisd(euler(1), Eigen::Vector3d::UnitY())
-                * Eigen::AngleAxisd(euler(2), Eigen::Vector3d::UnitZ());
+            Eigen::AngleAxisd rollAngle(euler(2), Eigen::Vector3d::UnitX());
+            Eigen::AngleAxisd pitchAngle(euler(1), Eigen::Vector3d::UnitY());
+            Eigen::AngleAxisd yawAngle(euler(0), Eigen::Vector3d::UnitZ());
             
+            Eigen::Quaterniond q = yawAngle * pitchAngle * rollAngle;
+            R60 = q.matrix();
+
+            std::cout << "R60\n " << R60 << std::endl;
             Eigen::Affine3d hmTransf = Eigen::Affine3d::Identity();
             hmTransf.translation() = p60;
             hmTransf.linear() = R60;
             T60 = hmTransf.matrix();
+            std::cout << "T60\n" << T60 << std::endl;
             
             //finding th1
             Eigen::Vector4d data;
             data << 0, 0, -D(5), 1;
-            Eigen::ArrayXd p50 = (T60 * data).topRows(3);
+            Eigen::ArrayXd p50 = (T60 * data).topRows(4);
 
             double psi = atan2(p50(1), p50(0));
-            double p50xy = hypot(p50(2), p50(1));
+            double p50xy = hypot(p50(1), p50(0));
 
-            if(p50xy < D(4)){
+            if(p50xy < D(3)){
                 Eigen::MatrixXd ones(6,1);
                 ones.setOnes();
                 Th = ones * NAN;
@@ -128,7 +133,7 @@ class InversePublisher{
             }
 
             double phi1_1 = acos(D(3) / p50xy);
-            double phi1_2 = - phi1_1;
+            double phi1_2 = -phi1_1;
 
             double th1_1 = psi + phi1_1 + M_PI/2;
             double th1_2 = psi + phi1_2 + M_PI/2;
@@ -141,8 +146,8 @@ class InversePublisher{
             double th5_2_1 = acos((p61z_2 - D(3)) / D(5));
             double th5_2_2 = -acos((p61z_2 - D(3)) / D(5));
 
-            Eigen::Matrix4d T10_1 = getRotationMatrix(th1_1, ALPHA(1), D(0), A(0));
-            Eigen::Matrix4d T10_2 = getRotationMatrix(th1_2, ALPHA(1), D(0), A(0));
+            Eigen::Matrix4d T10_1 = getRotationMatrix(th1_1, ALPHA(0), D(0), A(0));
+            Eigen::Matrix4d T10_2 = getRotationMatrix(th1_2, ALPHA(0), D(0), A(0));
 
             Eigen::Matrix4d T16_1 = (T10_1.inverse()*T60).inverse();
             Eigen::Matrix4d T16_2 = (T10_2.inverse()*T60).inverse();
@@ -168,14 +173,12 @@ class InversePublisher{
                 th6_1_2 = atan2((-zy_1 / sin(th5_1_2)), (zx_1 / sin(th5_1_2)));
             }
 
-
             if(almostZero(sin(th5_2_1)) || (almostZero(zy_2) && almostZero(zx_2))){
                 std::cout << "singual configuration. Choosing arbitrary th6" << std::endl;
                 th6_2_1 = 0;
             } else {
                 th6_2_1 = atan2((-zy_2 / sin(th5_2_1)), (zx_2 / sin(th5_2_1)));
             }
-
 
             if(almostZero(sin(th5_2_2)) || (almostZero(zy_2) && almostZero(zx_2))){
                 std::cout << "singual configuration. Choosing arbitrary th6" << std::endl;
@@ -203,22 +206,22 @@ class InversePublisher{
             Eigen::Matrix4d T41_2_2 = T61_2 * (T54_2_2 * T65_2_2).inverse();
 
             data << 0, -D(4), 0, 1;
-            Eigen::ArrayXd P = (T41_1_1 * data).topRows(3);
+            Eigen::ArrayXd P = (T41_1_1 * data).topRows(4);
             Eigen::Vector3d P31_1_1 = P.topRows(0).leftCols(3);
 
-            P = (T41_1_2 * data).topRows(3);
+            P = (T41_1_2 * data).topRows(4);
             Eigen::Vector3d P31_1_2 = P.topRows(0).leftCols(3);
-
-            P = (T41_2_1 * data).topRows(3);
+            
+            P = (T41_2_1 * data).topRows(4);
             Eigen::Vector3d P31_2_1 = P.topRows(0).leftCols(3);
-
-            P = (T41_2_2 * data).topRows(3);
+            
+            P = (T41_2_2 * data).topRows(4);
             Eigen::Vector3d P31_2_2 = P.topRows(0).leftCols(3);
-
+            
             double th3_1_1_1, th3_1_1_2, th3_1_2_1, th3_1_2_2, 
             th3_2_1_1, th3_2_1_2, th3_2_2_1, th3_2_2_2;
 
-            double C = (pow(P31_1_1.norm(), 2) - A(2) * A(2) - A(3) * A(3)) / (2 * A(2) * A(3));
+            double C = (pow(P31_1_1.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
             if(abs(C) > 1){
                 std::cout << "Point out of the work space";
                 th3_1_1_1 = NAN;
@@ -228,7 +231,7 @@ class InversePublisher{
                 th3_1_1_2 = -acos(C);
             }
 
-            C = (pow(P31_1_2.norm(), 2) - A(2) * A(2) - A(3) * A(3)) / (2 * A(2) * A(3));
+            C = (pow(P31_1_2.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
             if(abs(C) > 1){
                 std::cout << "Point out of the work space";
                 th3_1_2_1 = NAN;
@@ -239,7 +242,7 @@ class InversePublisher{
             }
 
 
-            C = (pow(P31_2_1.norm(), 2) - A(2) * A(2) - A(3) * A(3)) / (2 * A(2) * A(3));         
+            C = (pow(P31_2_1.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
             if(abs(C) > 1){
                 std::cout << "Point out of the work space";
                 th3_2_1_1 = NAN;
@@ -250,7 +253,7 @@ class InversePublisher{
             }
 
 
-            C = (pow(P31_2_2.norm(), 2) - A(2) * A(2) - A(3) * A(3)) / (2 * A(2) * A(3));         
+            C = (pow(P31_2_2.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
             if(abs(C) > 1){
                 std::cout << "Point out of the work space";
                 th3_2_2_1 = NAN;
@@ -353,9 +356,9 @@ class InversePublisher{
          */
         Eigen::Matrix4d getRotationMatrix(double th, double alpha, double d, double a){
             Eigen::Matrix4d rotation;
-            rotation << cos(th), -sin(th)*cos(alpha), sin(th)*sin(alpha), a*cos(th);
-                        sin(th), cos(th)*cos(alpha), -cos(th)*sin(alpha), a*sin(th);
-                        0, sin(alpha), cos(alpha), d;
+            rotation << cos(th), -sin(th)*cos(alpha), sin(th)*sin(alpha), a*cos(th),
+                        sin(th), cos(th)*cos(alpha), -cos(th)*sin(alpha), a*sin(th),
+                        0, sin(alpha), cos(alpha), d,
                         0, 0, 0, 1;
 
             return rotation;                                        
@@ -399,10 +402,8 @@ class InversePublisher{
         }
 
         void talker(){
-            std::cout << "pe " << pe << std::endl;
-            std::cout << "euler " << euler << std::endl;
-            std::cout << "T60 " << T60 << std::endl;
-
+            //std::cout << "pe " << std::endl << pe << std::endl;
+            //std::cout << "euler " << std::endl << euler << std::endl;
 
             ros::init(argc, argv, "ur5_direct", ros::init_options::AnonymousName);
             ros::NodeHandle n;
