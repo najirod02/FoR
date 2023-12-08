@@ -171,14 +171,7 @@ class DirectPublisher{
             //AnonymousName adds a random suffix to the node name
             ros::init(argc, argv, "ur5_direct", ros::init_options::AnonymousName);
             ros::NodeHandle n;
-
-            //check if robot is real
-            bool real_robot;
-            n.getParam("real_robot", real_robot);
-
-            if(real_robot)
-                std::cout << "Robot is REAL" << std::endl;
-
+            
             //create and subscribe to topics
             joint_pub = n.advertise<std_msgs::Float64MultiArray>(TOPIC, 1000);
             sub = n.subscribe(TOPIC_SUB, 1000, &DirectPublisher::receive_jstate, this);

@@ -27,6 +27,7 @@
  * example of call:
  * joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"}
  * 
+ * rosrun ur5_inverse ur5_inverse 0.1 -0.65 0.2 -0.4 -0.2 0.3
  */
 class InversePublisher{
 
@@ -45,11 +46,12 @@ class InversePublisher{
 
     //used to read the joint states
     Eigen::ArrayXd q;
+    Eigen::ArrayXd q_des;
     Eigen::Array3d pe;//the destination point
     Eigen::Array3d euler;//the rotation of e.e
+    Eigen::Matrix3d R60;//rotation matrix of the euler angles
     Eigen::Matrix4d T60;
     
-
     char **argv;
     int argc;
     bool gripper_sim;
@@ -86,24 +88,265 @@ class InversePublisher{
             pe << std::stod(argv_[1]), std::stod(argv_[2]), std::stod(argv_[3]);
             euler << std::stod(argv_[4]), std::stod(argv_[5]), std::stod(argv_[6]);
             
-            //TODO: initialize T60 --> see slides or doc
-            //T60 = [R60 p60; zeros(1,3) 1];
-            //need to use R60 = euler BUT in a matrix
-            //p60 = pe
-
-            // from euler angles (ZYX convention - subsequent rotations about moving axes) to rotation matrix w_R_b
-            Eigen::Matrix3d R60;
-            R60 = Eigen::AngleAxisd(euler(0), Eigen::Vector3d::UnitZ())
-                * Eigen::AngleAxisd(euler(1), Eigen::Vector3d::UnitY())
-                * Eigen::AngleAxisd(euler(2), Eigen::Vector3d::UnitZ());
-
             //start talker
             talker();    
         }
 
     private: 
 
-        void ur5Inverse(Eigen::ArrayXd &pe, Eigen::MatrixXd &Re){}
+        /**
+         * given the final point and the rotation of the end effector
+         * caculate the different solutions
+         */
+        Eigen::MatrixXd ur5Inverse(Eigen::Array3d &p60, Eigen::Matrix3d &Re){
+            Eigen::MatrixXd Th(6, 8);
+            
+            // from euler angles to rotation matrix R60
+            R60 = Eigen::AngleAxisd(euler(0), Eigen::Vector3d::UnitZ())
+                * Eigen::AngleAxisd(euler(1), Eigen::Vector3d::UnitY())
+                * Eigen::AngleAxisd(euler(2), Eigen::Vector3d::UnitZ());
+            
+            Eigen::Affine3d hmTransf = Eigen::Affine3d::Identity();
+            hmTransf.translation() = p60;
+            hmTransf.linear() = R60;
+            T60 = hmTransf.matrix();
+            
+            //finding th1
+            Eigen::Vector4d data;
+            data << 0, 0, -D(5), 1;
+            Eigen::ArrayXd p50 = (T60 * data).topRows(3);
+
+            double psi = atan2(p50(1), p50(0));
+            double p50xy = hypot(p50(2), p50(1));
+
+            if(p50xy < D(4)){
+                Eigen::MatrixXd ones(6,1);
+                ones.setOnes();
+                Th = ones * NAN;
+                std::cout << "Position request in the unreachable cylinder" << std::endl;
+                return Th;
+            }
+
+            double phi1_1 = acos(D(3) / p50xy);
+            double phi1_2 = - phi1_1;
+
+            double th1_1 = psi + phi1_1 + M_PI/2;
+            double th1_2 = psi + phi1_2 + M_PI/2;
+
+            double p61z_1 = p60(0) * sin(th1_1) - p60(1) * cos(th1_1);
+            double p61z_2 = p60(0) * sin(th1_2) - p60(1) * cos(th1_2);
+
+            double th5_1_1 = acos((p61z_1 - D(3)) / D(5));
+            double th5_1_2 = -acos((p61z_1 - D(3)) / D(5));
+            double th5_2_1 = acos((p61z_2 - D(3)) / D(5));
+            double th5_2_2 = -acos((p61z_2 - D(3)) / D(5));
+
+            Eigen::Matrix4d T10_1 = getRotationMatrix(th1_1, ALPHA(1), D(0), A(0));
+            Eigen::Matrix4d T10_2 = getRotationMatrix(th1_2, ALPHA(1), D(0), A(0));
+
+            Eigen::Matrix4d T16_1 = (T10_1.inverse()*T60).inverse();
+            Eigen::Matrix4d T16_2 = (T10_2.inverse()*T60).inverse();
+
+            double zy_1 = T16_1(1,2);
+            double zx_1 = T16_1(0,2);
+
+            double zy_2 = T16_2(1,2);
+            double zx_2 = T16_2(0,2);
+            double th6_1_1, th6_1_2, th6_2_1, th6_2_2;
+
+            if(almostZero(sin(th5_1_1)) || (almostZero(zy_1) && almostZero(zx_1))){
+                std::cout << "singual configuration. Choosing arbitrary th6" << std::endl;
+                th6_1_1 = 0;
+            } else {
+                th6_1_1 = atan2((-zy_1 / sin(th5_1_1)), (zx_1 / sin(th5_1_1)));
+            }
+
+            if(almostZero(sin(th5_1_2)) || (almostZero(zy_1) && almostZero(zx_1))){
+                std::cout << "singual configuration. Choosing arbitrary th6" << std::endl;
+                th6_1_2 = 0;
+            } else {
+                th6_1_2 = atan2((-zy_1 / sin(th5_1_2)), (zx_1 / sin(th5_1_2)));
+            }
+
+
+            if(almostZero(sin(th5_2_1)) || (almostZero(zy_2) && almostZero(zx_2))){
+                std::cout << "singual configuration. Choosing arbitrary th6" << std::endl;
+                th6_2_1 = 0;
+            } else {
+                th6_2_1 = atan2((-zy_2 / sin(th5_2_1)), (zx_2 / sin(th5_2_1)));
+            }
+
+
+            if(almostZero(sin(th5_2_2)) || (almostZero(zy_2) && almostZero(zx_2))){
+                std::cout << "singual configuration. Choosing arbitrary th6" << std::endl;
+                th6_2_2 = 0;
+            } else {
+                th6_2_2 = atan2((-zy_2 / sin(th5_2_2)), (zx_2 / sin(th5_2_2)));
+            }
+
+            Eigen::Matrix4d T61_1 = T16_1.inverse();
+            Eigen::Matrix4d T61_2 = T16_2.inverse();
+
+            Eigen::Matrix4d T54_1_1 = getRotationMatrix(th5_1_1, ALPHA(4), D(4), A(4));
+            Eigen::Matrix4d T54_1_2 = getRotationMatrix(th5_1_2, ALPHA(4), D(4), A(4));
+            Eigen::Matrix4d T54_2_1 = getRotationMatrix(th5_2_1, ALPHA(4), D(4), A(4));
+            Eigen::Matrix4d T54_2_2 = getRotationMatrix(th5_2_2, ALPHA(4), D(4), A(4));
+
+            Eigen::Matrix4d T65_1_1 = getRotationMatrix(th6_1_1, ALPHA(5), D(5), A(5));
+            Eigen::Matrix4d T65_1_2 = getRotationMatrix(th6_1_2, ALPHA(5), D(5), A(5));
+            Eigen::Matrix4d T65_2_1 = getRotationMatrix(th6_2_1, ALPHA(5), D(5), A(5));
+            Eigen::Matrix4d T65_2_2 = getRotationMatrix(th6_2_2, ALPHA(5), D(5), A(5));
+
+            Eigen::Matrix4d T41_1_1 = T61_1 * (T54_1_1 * T65_1_1).inverse();
+            Eigen::Matrix4d T41_1_2 = T61_1 * (T54_1_2 * T65_1_2).inverse();
+            Eigen::Matrix4d T41_2_1 = T61_2 * (T54_2_1 * T65_2_1).inverse();
+            Eigen::Matrix4d T41_2_2 = T61_2 * (T54_2_2 * T65_2_2).inverse();
+
+            data << 0, -D(4), 0, 1;
+            Eigen::ArrayXd P = (T41_1_1 * data).topRows(3);
+            Eigen::Vector3d P31_1_1 = P.topRows(0).leftCols(3);
+
+            P = (T41_1_2 * data).topRows(3);
+            Eigen::Vector3d P31_1_2 = P.topRows(0).leftCols(3);
+
+            P = (T41_2_1 * data).topRows(3);
+            Eigen::Vector3d P31_2_1 = P.topRows(0).leftCols(3);
+
+            P = (T41_2_2 * data).topRows(3);
+            Eigen::Vector3d P31_2_2 = P.topRows(0).leftCols(3);
+
+            double th3_1_1_1, th3_1_1_2, th3_1_2_1, th3_1_2_2, 
+            th3_2_1_1, th3_2_1_2, th3_2_2_1, th3_2_2_2;
+
+            double C = (pow(P31_1_1.norm(), 2) - A(2) * A(2) - A(3) * A(3)) / (2 * A(2) * A(3));
+            if(abs(C) > 1){
+                std::cout << "Point out of the work space";
+                th3_1_1_1 = NAN;
+                th3_1_1_2 = NAN;
+            } else {
+                th3_1_1_1 = acos(C);
+                th3_1_1_2 = -acos(C);
+            }
+
+            C = (pow(P31_1_2.norm(), 2) - A(2) * A(2) - A(3) * A(3)) / (2 * A(2) * A(3));
+            if(abs(C) > 1){
+                std::cout << "Point out of the work space";
+                th3_1_2_1 = NAN;
+                th3_1_2_2 = NAN;
+            } else {
+                th3_1_2_1 = acos(C);
+                th3_1_2_2 = -acos(C);
+            }
+
+
+            C = (pow(P31_2_1.norm(), 2) - A(2) * A(2) - A(3) * A(3)) / (2 * A(2) * A(3));         
+            if(abs(C) > 1){
+                std::cout << "Point out of the work space";
+                th3_2_1_1 = NAN;
+                th3_2_1_2 = NAN;
+            } else {
+                th3_2_1_1 = acos(C);
+                th3_2_1_2 = -acos(C);
+            }
+
+
+            C = (pow(P31_2_2.norm(), 2) - A(2) * A(2) - A(3) * A(3)) / (2 * A(2) * A(3));         
+            if(abs(C) > 1){
+                std::cout << "Point out of the work space";
+                th3_2_2_1 = NAN;
+                th3_2_2_2 = NAN;
+            } else {
+                th3_2_2_1 = acos(C);
+                th3_2_2_2 = -acos(C);
+            }
+
+
+            double th2_1_1_1, th2_1_1_2, th2_1_2_1, th2_1_2_2,
+            th2_2_1_1, th2_2_1_2, th2_2_2_1, th2_2_2_2;
+
+            th2_1_1_1 = -atan2(P31_1_1(2), -P31_1_1(1))+asin((A(3)*sin(th3_1_1_1))/P31_1_1.norm());
+            th2_1_1_2 = -atan2(P31_1_1(2), -P31_1_1(1))+asin((A(3)*sin(th3_1_1_2))/P31_1_1.norm());
+            th2_1_2_1 = -atan2(P31_1_2(2), -P31_1_2(1))+asin((A(3)*sin(th3_1_2_1))/P31_1_2.norm());
+            th2_1_2_2 = -atan2(P31_1_2(2), -P31_1_2(1))+asin((A(3)*sin(th3_1_2_2))/P31_1_2.norm());
+            th2_2_1_1 = -atan2(P31_2_1(2), -P31_2_1(1))+asin((A(3)*sin(th3_2_1_1))/P31_2_1.norm());
+            th2_2_1_2 = -atan2(P31_2_1(2), -P31_2_1(1))+asin((A(3)*sin(th3_2_1_2))/P31_2_1.norm());
+            th2_2_2_1 = -atan2(P31_2_2(2), -P31_2_2(1))+asin((A(3)*sin(th3_2_2_1))/P31_2_2.norm());
+            th2_2_2_2 = -atan2(P31_2_2(2), -P31_2_2(1))+asin((A(3)*sin(th3_2_2_2))/P31_2_2.norm());
+                
+            Eigen::MatrixXd T21 = getRotationMatrix(th2_1_1_1, ALPHA(1), D(1), A(1));
+            Eigen::MatrixXd T32 = getRotationMatrix(th3_1_1_1, ALPHA(2), D(2), A(2));
+            Eigen::MatrixXd T41 = T41_1_1;
+            Eigen::MatrixXd T43 = (T21 * T32).inverse() * T41;
+            double xy = T43(1, 0);
+            double xx = T43(0, 0);
+            double th4_1_1_1 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_1_1_2, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_1_1_2, ALPHA(2), D(2), A(2));
+            T41 = T41_1_1;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_1_1_2 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_1_2_1, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_1_2_1, ALPHA(2), D(2), A(2));
+            T41 = T41_1_2;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_1_2_1 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_1_2_2, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_1_2_2, ALPHA(2), D(2), A(2));
+            T41 = T41_1_2;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_1_2_2 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_2_1_1, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_2_1_1, ALPHA(2), D(2), A(2));
+            T41 = T41_2_1;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_2_1_1 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_2_1_2, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_2_1_2, ALPHA(2), D(2), A(2));
+            T41 = T41_2_1;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_2_1_2 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_2_2_1, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_2_2_1, ALPHA(2), D(2), A(2));
+            T41 = T41_2_2;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_2_2_1 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_2_2_2, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_2_2_2, ALPHA(2), D(2), A(2));
+            T41 = T41_2_2;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_2_2_2 = atan2(xy, xx);
+
+            Th.resize(6, 8);
+            Th.row(0) << th1_1, th1_1, th1_1, th1_1, th1_2, th1_2, th1_2, th1_2;
+            Th.row(1) << th2_1_1_1, th2_1_1_2, th2_1_2_1, th2_1_2_2, th2_2_2_1, th2_2_1_2, th2_2_2_1, th2_2_2_2;
+            Th.row(2) << th3_1_1_1, th3_1_1_2, th3_1_2_1, th3_1_2_2, th3_2_2_1, th3_2_1_2, th3_2_2_1, th3_2_2_2;
+            Th.row(3) << th4_1_1_1, th4_1_1_2, th4_1_2_1, th4_1_2_2, th4_2_2_1, th4_2_1_2, th4_2_2_1, th4_2_2_2;
+            Th.row(4) << th5_1_1, th5_1_1, th5_1_2, th5_1_2, th5_2_2, th5_2_1, th5_2_2, th5_2_2;
+            Th.row(5) << th6_1_1, th6_1_1, th6_1_2, th6_1_2, th6_2_2, th6_2_1, th6_2_2, th6_2_2;
+
+            return Th;
+        }
 
         /**
          * returns the homogEigen::Matrix4d getRotationMatrix(double th, double alpha, double d, double a){eneus matrix
@@ -122,9 +365,71 @@ class InversePublisher{
             return abs(value)<1e-7;
         }
 
+
+        /**
+         * a simple functions that cretes the message and publish it through the 
+         * topic.
+         * note that the angles must be of RADIANT type !!!
+         */
+        void send_des_jstate(){
+            std_msgs::Float64MultiArray msg;
+            //in case the gripper_sim in params.py is True we need to specify 
+            //2 other values to control the gap between the gripper
+            //the first value is for the left side
+            //the second value is for the right side
+            std::vector<double> v3(&q_des[0], q_des.data() + q_des.cols() * q_des.rows());
+            msg.data = v3;
+
+            joint_pub.publish(msg);
+        }
+
+        /**
+         * receive the joints states from the topic
+         * need to check the correspondence of q index and position index
+         * to make shure that we are reading the correct joint (names)
+         */
+        void receive_jstate(const sensor_msgs::JointState::ConstPtr& msg){
+            for(int msg_idx=0; msg_idx<msg->name.size(); ++msg_idx){
+                for(int joint_idx=0; joint_idx<JOINT_NAMES; ++joint_idx){
+                    if(joint_names[joint_idx].compare(msg->name[msg_idx]) == 0){
+                        q[joint_idx] = msg->position[msg_idx];
+                    }
+                }
+            }
+        }
+
         void talker(){
             std::cout << "pe " << pe << std::endl;
             std::cout << "euler " << euler << std::endl;
+            std::cout << "T60 " << T60 << std::endl;
+
+
+            ros::init(argc, argv, "ur5_direct", ros::init_options::AnonymousName);
+            ros::NodeHandle n;
+
+            //create and subscribe to topics
+            joint_pub = n.advertise<std_msgs::Float64MultiArray>(TOPIC, 1000);
+            sub = n.subscribe(TOPIC_SUB, 1000, &InversePublisher::receive_jstate, this);
+ 
+            ros::Duration(2).sleep();//sleep for 2 seconds
+            ros::spinOnce();//IMPORTANT!!! to make sure that the initial configuration is read from the subscriber
+
+            //print initial q state
+            std::cout << "initial q [ ";
+            for(int i=0; i<q.size(); ++i){
+                std::cout << q[i] << " ";
+            }
+            std::cout << "]" << std::endl;
+
+            //check if gripper is actuated
+            gripper_sim;
+            n.getParam("/gripper_sim", gripper_sim);
+            //gripper_sim = 0 if false (treated as  a rigid body)
+
+            Eigen::MatrixXd Th = ur5Inverse(pe, R60);
+
+            //TODO: check code if it computes everything correctly
+            std::cout << "Th: " << std::endl << Th << std::endl;
         }
 
 };
