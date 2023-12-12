@@ -30,7 +30,7 @@
  * NOTE
  * the gripper is about millimeters and NOT angles (max opening = 100mm)
  * gripper_sim True -> specify joint values + gripper (2 values, left + right)
- * rosrun ur5_direct ur5_direct -90 -45 -120 90 -90 45 45
+ * rosrun ur5_direct ur5_direct -90 -45 -120 90 -90 45 45 45
  */
 class DirectPublisher{
 
@@ -114,7 +114,7 @@ class DirectPublisher{
             Eigen::Matrix4d t60 = t10*t21*t32*t43*t54*t65;
 
             pe = t60.block(0, 3, 3, 3);
-            Re = t60.block(0, 3, 3, 3);
+            Re = t60.block(0, 0, 3, 3);
         }
 
         /**
@@ -198,13 +198,6 @@ class DirectPublisher{
             Re.resize(3,3);
 
             ur5Direct(pe, Re);
-
-            //print cartesian position of the end effector
-            std::cout << "pe [ ";
-            for(int i=0; i<pe.size(); ++i){
-                std::cout << pe[i] << " ";
-            }
-            std::cout << "]" << std::endl;
             
             //send through topic the new joint values
             send_des_jstate(q_des);
@@ -216,6 +209,15 @@ class DirectPublisher{
                 std::cout << q[i] << " ";
             }
             std::cout << "]" << std::endl;
+
+            //print cartesian position of the end effector
+            std::cout << "pe [ ";
+            for(int i=0; i<pe.size(); ++i){
+                std::cout << pe[i] << " ";
+            }
+            std::cout << "]" << std::endl;
+
+            std::cout << "Re\n" << Re << std::endl;
         }
 
 };
