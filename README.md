@@ -95,3 +95,42 @@ Usually this are the definitions used:
   add_dependencies([node name] [dep])
 ```
 Remember to always [Build and Update](#how-to-create-and-build-the-packages) the package
+
+## General notes
+
+- What values should have **gripper_sim** in params.py file?
+
+  While testing the different packages, it depends but during the **final test** it must
+  be **True**.
+
+- What **frame** we need to use to make the measurements (cartesian position)? 
+  
+  In RViz, select from TF -> Frames -> **base_link_inertia**. 
+  
+  This is the frame from which we can take the measurements and check the final position of end effector.
+
+  In short: 
+
+  **X positive** -> go to the **left** of the table
+
+  **Y positive** -> go in the **'inner'** side of the table
+
+  **Z positive** -> go **down**
+    
+![alt text](/src/assets/images/framesPositions.png)
+
+- What about **euler** rotations?
+
+  The angles are refered to the **base_link_inertia**.
+
+  The configuration shown on the image is with angles 0, 0, 0 (XYZ). So, for example, a rotation of pi/2 about Y will make point the end effector in the same direction of X axis of the base_link_inertia.
+
+- What value should have the **scale factor**?
+  
+  It depends on how you want to develop the project.
+
+  A scale factor of **10** gives you measurements in **centimeters**.
+
+  A scale factor of **1** gives you measurements in **meters**. 
+
+  And so on...

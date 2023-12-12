@@ -18,8 +18,8 @@
  * there is NO CONTROL on possible SINGULARITIES and COLLISIONS so, use the script 
  * with precautions!!!!!
  * 
- * all the joint have a 360° mobility and the gripper has (only testes) 45° of opening
- * for each side 
+ * all the joint have a 360° mobility and the gripper has an (symetric) opening of 100mm
+ * 45mm for each side
  * 
  * example of call:
  * joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"}
@@ -30,7 +30,7 @@
  * NOTE
  * the gripper is about millimeters and NOT angles (max opening = 100mm)
  * gripper_sim True -> specify joint values + gripper (2 values, left + right)
- * rosrun ur5_direct ur5_direct -90 -45 -120 90 -90 45 45 45
+ * rosrun ur5_direct ur5_direct -1.57 -1.57 -2.09 1.57 -1.57 1.57 50 50
  */
 class DirectPublisher{
 
@@ -40,7 +40,7 @@ class DirectPublisher{
     const std::string TOPIC_SUB = std::string("/ur5/joint_states");
 
     const static int JOINT_NAMES = 6;
-    const double SCALAR_FACTOR = 10.0;
+    const double SCALAR_FACTOR = 1.0;
 
     ros::Publisher joint_pub;
     ros::Subscriber sub;
@@ -84,9 +84,8 @@ class DirectPublisher{
             D *= SCALAR_FACTOR;
 
             //read the destination values given in input from argv
-            //convert from grads to rads
             for(int i=1; i<=argc-1; ++i){
-                q_des(i-1) = std::stod(argv_[i]) * (M_PI / 180.0);
+                q_des(i-1) = std::stod(argv_[i]);
             }
 
             //start talker
@@ -203,6 +202,7 @@ class DirectPublisher{
             send_des_jstate(q_des);
  
             //print final q state
+            ros::Duration(1).sleep();
             ros::spinOnce();
             std::cout << "final q [ ";
             for(int i=0; i<q.size(); ++i){
@@ -224,7 +224,7 @@ class DirectPublisher{
 
 int main(int argc, char **argv){
     if(argc < 7) {
-        std::cerr << "Insert 6 angles of the joints (in grads) " << std::endl << "[if gripper_sim is set on True add other 2 values for the gripper]" << std::endl;
+        std::cerr << "Insert 6 angles of the joints (in radiants) " << std::endl << "[if gripper_sim is set on True add other 2 values for the gripper]" << std::endl;
         return 1;
     }
 

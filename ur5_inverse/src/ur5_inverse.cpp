@@ -17,15 +17,12 @@
  * the inverse kinematic problem gives more than 1 solution and the one choosed
  * in arbitrarly
  * 
- * TODO:
- * there is no check if a solution or all solutions contains a Nan value
- * 
  * in case of singular configuration, an arbitrary value of the th6 will be choosed
  * 
  * in case of a point out of the work space, Nan values will be used
  * 
- * all the joint have a 360° mobility and the gripper has (only testes) 45° of opening
- * for each side 
+ * all the joint have a 360° mobility and the gripper has an (symetric) opening of 100mm
+ * 45mm for each side
  * 
  * NOTE
  * remember to set on params.py the gripper_sim flag as TRUE
@@ -108,14 +105,14 @@ class InversePublisher{
             Eigen::MatrixXd Th(6, 8);
             
             // from euler angles to rotation matrix R60
-            Eigen::AngleAxisd rollAngle(euler(2), Eigen::Vector3d::UnitX());
+            Eigen::AngleAxisd rollAngle(euler(0), Eigen::Vector3d::UnitX());
             Eigen::AngleAxisd pitchAngle(euler(1), Eigen::Vector3d::UnitY());
-            Eigen::AngleAxisd yawAngle(euler(0), Eigen::Vector3d::UnitZ());
+            Eigen::AngleAxisd yawAngle(euler(2), Eigen::Vector3d::UnitZ());
             
             Eigen::Quaterniond q = yawAngle * pitchAngle * rollAngle;
             R60 = q.matrix();
-
             //std::cout << "R60\n " << R60 << std::endl;
+
             Eigen::Affine3d hmTransf = Eigen::Affine3d::Identity();
             hmTransf.translation() = p60;
             hmTransf.linear() = R60;
@@ -273,14 +270,14 @@ class InversePublisher{
             double th2_1_1_1, th2_1_1_2, th2_1_2_1, th2_1_2_2,
             th2_2_1_1, th2_2_1_2, th2_2_2_1, th2_2_2_2;
 
-            th2_1_1_1 = -atan2(P31_1_1(2), -P31_1_1(1))+asin((A(3)*sin(th3_1_1_1))/P31_1_1.norm());
-            th2_1_1_2 = -atan2(P31_1_1(2), -P31_1_1(1))+asin((A(3)*sin(th3_1_1_2))/P31_1_1.norm());
-            th2_1_2_1 = -atan2(P31_1_2(2), -P31_1_2(1))+asin((A(3)*sin(th3_1_2_1))/P31_1_2.norm());
-            th2_1_2_2 = -atan2(P31_1_2(2), -P31_1_2(1))+asin((A(3)*sin(th3_1_2_2))/P31_1_2.norm());
-            th2_2_1_1 = -atan2(P31_2_1(2), -P31_2_1(1))+asin((A(3)*sin(th3_2_1_1))/P31_2_1.norm());
-            th2_2_1_2 = -atan2(P31_2_1(2), -P31_2_1(1))+asin((A(3)*sin(th3_2_1_2))/P31_2_1.norm());
-            th2_2_2_1 = -atan2(P31_2_2(2), -P31_2_2(1))+asin((A(3)*sin(th3_2_2_1))/P31_2_2.norm());
-            th2_2_2_2 = -atan2(P31_2_2(2), -P31_2_2(1))+asin((A(3)*sin(th3_2_2_2))/P31_2_2.norm());
+            th2_1_1_1 = -atan2(P31_1_1(1), -P31_1_1(0))+asin((A(2)*sin(th3_1_1_1))/P31_1_1.norm());
+            th2_1_1_2 = -atan2(P31_1_1(1), -P31_1_1(0))+asin((A(2)*sin(th3_1_1_2))/P31_1_1.norm());
+            th2_1_2_1 = -atan2(P31_1_2(1), -P31_1_2(0))+asin((A(2)*sin(th3_1_2_1))/P31_1_2.norm());
+            th2_1_2_2 = -atan2(P31_1_2(1), -P31_1_2(0))+asin((A(2)*sin(th3_1_2_2))/P31_1_2.norm());
+            th2_2_1_1 = -atan2(P31_2_1(1), -P31_2_1(0))+asin((A(2)*sin(th3_2_1_1))/P31_2_1.norm());
+            th2_2_1_2 = -atan2(P31_2_1(1), -P31_2_1(0))+asin((A(2)*sin(th3_2_1_2))/P31_2_1.norm());
+            th2_2_2_1 = -atan2(P31_2_2(1), -P31_2_2(0))+asin((A(2)*sin(th3_2_2_1))/P31_2_2.norm());
+            th2_2_2_2 = -atan2(P31_2_2(1), -P31_2_2(0))+asin((A(2)*sin(th3_2_2_2))/P31_2_2.norm());
                 
             Eigen::MatrixXd T21 = getRotationMatrix(th2_1_1_1, ALPHA(1), D(1), A(1));
             Eigen::MatrixXd T32 = getRotationMatrix(th3_1_1_1, ALPHA(2), D(2), A(2));
@@ -376,6 +373,26 @@ class InversePublisher{
 
 
         /**
+         * removes the columns that contains at least 1 Nan
+         */
+        Eigen::MatrixXd purgeNanColumn(Eigen::MatrixXd matrix){
+            Eigen::MatrixXd newMatrix(6, 0);
+            int nColumns = 0;
+
+            for (int col = 0; col < matrix.cols(); ++col) {
+                bool hasNaN = matrix.col(col).array().isNaN().any();
+
+                if (!hasNaN) {
+                    newMatrix.conservativeResize(matrix.rows(), nColumns + 1);
+                    newMatrix.col(nColumns) = matrix.col(col);
+                    ++nColumns;
+                }
+            }
+
+            return newMatrix;
+        }
+
+        /**
          * a simple functions that cretes the message and publish it through the 
          * topic.
          * note that the angles must be of RADIANT type !!!
@@ -386,6 +403,11 @@ class InversePublisher{
             //2 other values to control the gap between the gripper
             //the first value is for the left side
             //the second value is for the right side
+            //in this case we let the gripper completly closed
+            q_des.conservativeResize(q_des.size() + 2);
+            q_des(q_des.size()-2) = 0;
+            q_des(q_des.size()-1) = 0;
+
             std::vector<double> v3(&q_des[0], q_des.data() + q_des.cols() * q_des.rows());
             msg.data = v3;
 
@@ -418,7 +440,7 @@ class InversePublisher{
             joint_pub = n.advertise<std_msgs::Float64MultiArray>(TOPIC, 1000);
             sub = n.subscribe(TOPIC_SUB, 1000, &InversePublisher::receive_jstate, this);
  
-            ros::Duration(2).sleep();//sleep for 2 seconds
+            ros::Duration(1).sleep();//sleep for 1 seconds
             ros::spinOnce();//IMPORTANT!!! to make sure that the initial configuration is read from the subscriber
 
             //print initial q state
@@ -437,11 +459,22 @@ class InversePublisher{
 
             std::cout << "Th: " << std::endl << Th << std::endl;
 
+            Th = purgeNanColumn(Th);
+            //std::cout << "Purged\n" << Th << std::endl;
+
             //we can choose an arbitrary solution from Th
+            //we know from purge that the remaining solutions are all valid
+            //and doesn't contain a Nan value
             //send through topic the new joint values
-            send_des_jstate(Th.row(0));
+            if(Th.cols() >= 1){
+                send_des_jstate(Th.col(0));
+                //std::cout << Th.col(0) << std::endl;;
+            } else {
+                std::cout << "No possible motion\n";
+            }
 
             //print final q state
+            ros::Duration(1).sleep();
             ros::spinOnce();
             std::cout << "final q [ ";
             for(int i=0; i<q.size(); ++i){
