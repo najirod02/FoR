@@ -117,7 +117,7 @@ Remember to always [Build and Update](#how-to-create-and-build-the-packages) the
 
   **Z positive** -> go **down**
     
-![alt text](/src/assets/images/framesPositions.png)
+![alt text](./images/framesPositions.png)
 
 - What about **euler** rotations?
 
