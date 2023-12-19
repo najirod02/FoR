@@ -122,6 +122,7 @@ class InversePublisher{
             //finding th1
             Eigen::Vector4d data;
             data << 0, 0, -D(5), 1;
+            //trapose result to save in p50
             Eigen::ArrayXd p50 = (T60 * data).topRows(4);
 
             double psi = atan2(p50(1), p50(0));
@@ -371,7 +372,6 @@ class InversePublisher{
             return abs(value)<1e-7;
         }
 
-
         /**
          * removes the columns that contains at least 1 Nan
          */
@@ -467,6 +467,7 @@ class InversePublisher{
             //and doesn't contain a Nan value
             //send through topic the new joint values
             if(Th.cols() >= 1){
+                std::cout << "Send motion\n";
                 send_des_jstate(Th.col(0));
                 //std::cout << Th.col(0) << std::endl;;
             } else {

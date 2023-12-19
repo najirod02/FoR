@@ -1,0 +1,735 @@
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <string.h>
+#include <math.h>
+#include <algorithm>
+#include <sstream>
+#include <iostream>
+#include <list>
+#include "ros/ros.h"
+#include "std_msgs/Float64MultiArray.h"
+#include "sensor_msgs/JointState.h"
+#include <iterator>
+
+using namespace std;
+using namespace Eigen;
+
+const static double Tf=10.0;
+const static double Tb=0;
+const static double deltaT=0.1;
+
+static int sp=0;
+
+std::string TOPIC_SUB("/ur5/joint_states");
+std::string TOPIC("/ur5/joint_group_pos_controller/command");
+const static int RATE = 1000;
+std::string joint_names [] = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+const static int JOINT_NAMES = 6;
+const double SCALAR_FACTOR = 1.0;
+static Quaterniond q0,qf;
+static Vector3d xe0,xef,phie0,phief;
+static VectorXd q(6);
+static VectorXd A(6),D(6),ALPHA(6);
+
+Matrix3d eul2rotm(Vector3d euler);
+Quaterniond eul2quat(Vector3d euler);
+bool almostZero(double value);
+Vector3d pd(double ti);
+Quaterniond qd( double ti);
+Vector3d phid(double ti);
+Matrix4d getRotationMatrix(double th, double alpha, double d, double a);
+MatrixXd ur5Inverse(Vector3d &p60, Matrix3d &Re);
+MatrixXd purgeNanColumn(MatrixXd matrix);
+Matrix4d ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des);
+VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi);
+list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorXd T,Matrix3d Kp,Matrix3d Kphi);
+void stampaVector(VectorXd v);
+
+void send_des_jstate(ros::Publisher joint_pub, bool gripper_sim, VectorXd q_des);
+void receive_jstate(const sensor_msgs::JointState::ConstPtr& msg);
+Vector3d rotationMatrixToEulerAngles(Matrix3d &R);
+
+int main(int argc, char **argv){
+
+    //initialize publisher to send new joint states
+    ros::init(argc, argv, "ur5_differential", ros::init_options::AnonymousName);
+    ros::NodeHandle n;
+    ros::Publisher joint_pub = n.advertise<std_msgs::Float64MultiArray>(TOPIC, 1000);
+    ros::Subscriber sub = n.subscribe(TOPIC_SUB, 1000, receive_jstate);
+    ros::Rate loop_rate(RATE);
+
+    bool gripper_sim;
+    n.getParam("/gripper_sim", gripper_sim);    
+    ros::spinOnce();
+    //*/
+
+
+    A<<0, -0.425, -0.3922, 0, 0, 0;
+    D<<0.1625, 0, 0, 0.1333, 0.0997, 0.0996;
+    ALPHA<<M_PI/2, 0, 0, M_PI/2, -M_PI/2, 0;
+    xe0 << 0.3, -0.3, 0.1;
+    phie0 << 0, 0, 0;
+
+    //read the actual position of end effector
+    Matrix3d Re;
+    ur5Direct(xe0, Re, xef);
+    phie0 = rotationMatrixToEulerAngles(Re);
+
+    //phief << M_PI/4, M_PI/4, M_PI/4; //Safer orientation
+    phief << M_PI/3, M_PI/2-0.1, M_PI/3; //Critical orientation
+    //phief << 0, 0, 0;
+    //phief << -M_PI/2+0.1, M_PI/3, 2*M_PI/3; //Safer orientation
+    xef << 0.5, -0.5, 0.5;
+    xe0*=SCALAR_FACTOR;
+    xef*=SCALAR_FACTOR;
+
+    A *= SCALAR_FACTOR;
+    D *= SCALAR_FACTOR;
+    
+
+    VectorXd T;
+    double L=(Tf-Tb)/deltaT;
+    T.resize(L+1);
+    double time=0;
+
+    for(int i=0;i<=L;i++){
+        T(i)=time;
+        time +=0.1;
+    } 
+   
+    q0 = eul2quat(phie0);
+
+    qf = eul2quat(phief);
+    Quaterniond q_prova=qd(0.1);
+    //Quaterniond qp(eul2rotm(phief));
+    //cout<<qf<<endl<<q_prova<<endl;
+    //cout<<qf<<endl<<q_prova<<endl;
+    
+    //cout<<phid(0)<<endl<< phie0<<endl;
+    Vector3d xd0 = pd(0);
+    Matrix3d R0=eul2rotm(phid(0));
+    
+    MatrixXd TH0 = ur5Inverse(xd0, R0);
+    //cout<<TH0<<endl;
+
+    MatrixXd M = purgeNanColumn(TH0);
+    VectorXd th0(6);
+    th0=M.col(0);                                  //non so che nome dare                              
+
+    Matrix3d Kp = 10*MatrixXd::Identity(3,3);
+    Matrix3d Kq = -10*MatrixXd::Identity(3,3);
+    //cout<<Kp<<endl<< Kq<<endl;
+    list <VectorXd> l;
+    
+
+    
+    l = invDiffKinematicControlSimCompleteQuaternion(th0,T, Kp, Kq); 
+
+    int k =0;
+    cout << "Starting motion\n";
+    MatrixXd v1;
+    v1.resize(6, 100);
+    auto iterator = l.begin();
+
+    for(auto i:l){
+        v1.col(k) = i;
+        k++;
+        //stampaVector(v1.col(k));
+    }
+
+    //cout << "v1:\n"<< v1 << endl << endl;
+
+
+    //send values to joints
+    int i=0;
+    while(ros::ok()){
+        //cout<<i<<"\n";
+        //stampaVector(v1.col(i));
+        //cout<<k<<"        "<<v1(0)<<" "<< v1(1)<<" "<< v1(2)<<" "<< v1(3)<<" "<< v1(4)<<" "<< v1(5)<<endl;
+        //k++;
+        send_des_jstate(joint_pub, gripper_sim, v1.col(i++));
+        ros::spinOnce();
+        loop_rate.sleep();
+
+        if(i >= 100) return 0;
+    }//*/
+
+    //print only values
+  /*
+    k = 1;
+    for(auto i:l){
+        VectorXd v1(6);
+        v1 = i;
+        cout<<k<<"      ";
+        stampaVector(v1);
+        //cout<<k<<"        "<<v1(0)<<" "<< v1(1)<<" "<< v1(2)<<" "<< v1(3)<<" "<< v1(4)<<" "<< v1(5)<<endl;
+        k++;
+    }
+    //*/
+
+
+    return 0;
+}
+
+Vector3d rotationMatrixToEulerAngles(Matrix3d &R)
+{
+    float sy = sqrt(R(0,0) * R(0,0) +  R(1,0) * R(1,0) );
+ 
+    bool singular = sy < 1e-6; // If
+ 
+    float x, y, z;
+    if (!singular)
+    {
+        x = atan2(R(2,1) , R(2,2));
+        y = atan2(-R(2,0), sy);
+        z = atan2(R(1,0), R(0,0));
+    }
+    else
+    {
+        x = atan2(-R(1,2), R(1,1));
+        y = atan2(-R(2,0), sy);
+        z = 0;
+    }
+    return Vector3d(x, y, z);
+ 
+}
+
+void send_des_jstate(ros::Publisher joint_pub, bool gripper_sim, VectorXd q_des){
+    std_msgs::Float64MultiArray msg;
+
+    if(gripper_sim){
+        q_des.conservativeResize(q_des.size() + 2);
+        q_des(q_des.size()-2) = 0;
+        q_des(q_des.size()-1) = 0;
+
+        std::vector<double> v3(&q_des[0], q_des.data()+q_des.cols()*q_des.rows());
+        msg.data = v3;
+    }
+    else {
+        std::vector<double> v3(&q_des[0], q_des.data()+q_des.cols()*q_des.rows());
+        msg.data = v3;
+    }
+
+    joint_pub.publish(msg);
+}
+
+void receive_jstate(const sensor_msgs::JointState::ConstPtr& msg){
+    for(int msg_idx=0; msg_idx<msg->name.size(); ++msg_idx){
+        for(int joint_idx=0; joint_idx<JOINT_NAMES; ++joint_idx){
+            if(joint_names[joint_idx].compare(msg->name[msg_idx]) == 0){
+                q[joint_idx] = msg->position[msg_idx];
+            }
+        }
+    }
+}
+
+
+Matrix3d eul2rotm(Vector3d euler){
+    AngleAxisd rollAngle(euler(0), Vector3d::UnitX());
+    AngleAxisd pitchAngle(euler(1), Vector3d::UnitY());
+    AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
+            
+    //Quaterniond q = yawAngle * pitchAngle * rollAngle;  
+    Quaterniond q =  rollAngle * pitchAngle * yawAngle ; 
+    //cout<<q<<endl;
+    Matrix3d R60 = q.matrix();
+    return R60;
+}
+
+//function that transform the euler angles into a quaternion 
+Quaterniond eul2quat(Vector3d euler){
+    AngleAxisd rollAngle(euler(0), Vector3d::UnitX());
+    AngleAxisd pitchAngle(euler(1), Vector3d::UnitY());
+    AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
+            
+    Quaterniond q =  rollAngle * pitchAngle * yawAngle ;  
+
+    //cout << "euel2quat: " << q.coeffs() << endl;
+    return q.conjugate();
+}
+
+Matrix4d ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des){
+    
+    Matrix4d t10 = getRotationMatrix(q_des(0), ALPHA(0), D(0), A(0));
+    Matrix4d t21 = getRotationMatrix(q_des(1), ALPHA(1), D(1), A(1));
+    Matrix4d t32 = getRotationMatrix(q_des(2), ALPHA(2), D(2), A(2));
+    Matrix4d t43 = getRotationMatrix(q_des(3), ALPHA(3), D(3), A(3));
+    Matrix4d t54 = getRotationMatrix(q_des(4), ALPHA(4), D(4), A(4));
+    Matrix4d t65 = getRotationMatrix(q_des(5), ALPHA(5), D(5), A(5));
+
+    Matrix4d t60 = t10*t21*t32*t43*t54*t65;
+
+    xe = t60.block(0, 3, 3, 1);
+    Re = t60.block(0, 0, 3, 3);
+
+    //cout << t60 << endl << endl;
+
+    return t60;
+}
+
+
+MatrixXd ur5Jac(VectorXd Th){                                    //Perché non viene usata la alpha?
+    MatrixXd J;
+    J.resize(6,6);
+
+/*
+    cout << "Th\n";
+    for(int i=0; i<6; ++i){
+        cout << Th(i) << endl;
+    }
+    cout << endl;
+//*/
+
+    J.col(0)<< 
+        D(4)*(cos(Th(0))*cos(Th(4)) + cos(Th(1) + Th(2) + Th(3))*sin(Th(0))*sin(Th(4))) + D(3)*cos(Th(0)) - A(1)*cos(Th(1))*sin(Th(0)) - D(4)*sin(Th(1) + Th(2) + Th(3))*sin(Th(0)) - A(2)*cos(Th(1))*cos(Th(2))*sin(Th(0)) + A(2)*sin(Th(0))*sin(Th(1))*sin(Th(2)),
+        D(4)*(cos(Th(4))*sin(Th(0)) - cos(Th(1) + Th(2) + Th(3))*cos(Th(0))*sin(Th(4))) + D(3)*sin(Th(0)) + A(1)*cos(Th(0))*cos(Th(1)) + D(4)*sin(Th(1) + Th(2) + Th(3))*cos(Th(0)) + A(2)*cos(Th(0))*cos(Th(1))*cos(Th(2)) - A(2)*cos(Th(0))*sin(Th(1))*sin(Th(2)),
+        0,
+        0,
+        0,
+        1;
+
+    J.col(1)<< 
+        -cos(Th(0))*(A(2)*sin(Th(1) + Th(2)) + A(1)*sin(Th(1)) + D(4)*(sin(Th(1) + Th(2))*sin(Th(3)) - cos(Th(1) + Th(2))*cos(Th(3))) - D(4)*sin(Th(4))*(cos(Th(1) + Th(2))*sin(Th(3)) + sin(Th(1) + Th(2))*cos(Th(3)))),
+        -sin(Th(0))*(A(2)*sin(Th(1) + Th(2)) + A(1)*sin(Th(1)) + D(4)*(sin(Th(1) + Th(2))*sin(Th(3)) - cos(Th(1) + Th(2))*cos(Th(3))) - D(4)*sin(Th(4))*(cos(Th(1) + Th(2))*sin(Th(3)) + sin(Th(1) + Th(2))*cos(Th(3)))),
+        A(2)*cos(Th(1) + Th(2)) - (D(4)*sin(Th(1) + Th(2) + Th(3) + Th(4)))/2 + A(1)*cos(Th(1)) + (D(4)*sin(Th(1) + Th(2) + Th(3) - Th(4)))/2 + D(4)*sin(Th(1) + Th(2) + Th(3)),
+        sin(Th(0)),
+        -cos(Th(0)),
+        0;
+
+
+    J.col(2)<<
+        cos(Th(0))*(D(4)*cos(Th(1) + Th(2) + Th(3)) - A(2)*sin(Th(1) + Th(2)) + D(4)*sin(Th(1) + Th(2) + Th(3))*sin(Th(4))),
+        sin(Th(0))*(D(4)*cos(Th(1) + Th(2) + Th(3)) - A(2)*sin(Th(1) + Th(2)) + D(4)*sin(Th(1) + Th(2) + Th(3))*sin(Th(4))),
+        A(2)*cos(Th(1) + Th(2)) - (D(4)*sin(Th(1) + Th(2) + Th(3) + Th(4)))/2 + (D(4)*sin(Th(1) + Th(2) + Th(3) - Th(4)))/2 + D(4)*sin(Th(1) + Th(2) + Th(3)),
+        sin(Th(0)),
+        -cos(Th(0)),
+        0;
+
+    J.col(3)<<
+        D(4)*cos(Th(0))*(cos(Th(1) + Th(2) + Th(3)) + sin(Th(1) + Th(2) + Th(3))*sin(Th(4))),
+        D(4)*sin(Th(0))*(cos(Th(1) + Th(2) + Th(3)) + sin(Th(1) + Th(2) + Th(3))*sin(Th(4))),
+        D(4)*(sin(Th(1) + Th(2) + Th(3) - Th(4))/2 + sin(Th(1) + Th(2) + Th(3)) - sin(Th(1) + Th(2) + Th(3) + Th(4))/2),
+        sin(Th(0)),
+        -cos(Th(0)),
+        0;
+
+    J.col(4)<<
+        D(4)*cos(Th(0))*cos(Th(1))*cos(Th(4))*sin(Th(2))*sin(Th(3)) - D(4)*cos(Th(0))*cos(Th(1))*cos(Th(2))*cos(Th(3))*cos(Th(4)) - D(4)*sin(Th(0))*sin(Th(4)) + D(4)*cos(Th(0))*cos(Th(2))*cos(Th(4))*sin(Th(1))*sin(Th(3)) + D(4)*cos(Th(0))*cos(Th(3))*cos(Th(4))*sin(Th(1))*sin(Th(2)),
+        D(4)*cos(Th(0))*sin(Th(4)) + D(4)*cos(Th(1))*cos(Th(4))*sin(Th(0))*sin(Th(2))*sin(Th(3)) + D(4)*cos(Th(2))*cos(Th(4))*sin(Th(0))*sin(Th(1))*sin(Th(3)) + D(4)*cos(Th(3))*cos(Th(4))*sin(Th(0))*sin(Th(1))*sin(Th(2)) - D(4)*cos(Th(1))*cos(Th(2))*cos(Th(3))*cos(Th(4))*sin(Th(0)),
+        -D(4)*(sin(Th(1) + Th(2) + Th(3) - Th(4))/2 + sin(Th(1) + Th(2) + Th(3) + Th(4))/2),
+        sin(Th(1) + Th(2) + Th(3))*cos(Th(0)),
+        sin(Th(1) + Th(2) + Th(3))*sin(Th(0)),
+        -cos(Th(1) + Th(2) + Th(3));
+
+    J.col(5)<<
+    0,
+    0,
+    0,
+    cos(Th(4))*sin(Th(0)) - cos(Th(1) + Th(2) + Th(3))*cos(Th(0))*sin(Th(4)),
+    - cos(Th(0))*cos(Th(4)) - cos(Th(1) + Th(2) + Th(3))*sin(Th(0))*sin(Th(4)),
+    -sin(Th(1) + Th(2) + Th(3))*sin(Th(4));  
+
+    return J; 
+}
+
+list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorXd T,Matrix3d Kp,Matrix3d Kphi){
+    Vector3d xe;
+    Matrix3d Re;
+    VectorXd qk(6);
+    qk=TH0;
+    double t;
+    list <VectorXd> q;
+    q.push_back(qk);
+    
+    for(int l=1;l<T.size()-1;++l){                                     //STRANE DIMENSIONI DEI VETTORI IN MATLAB 
+        t=T(l);
+        ur5Direct(xe,Re,qk);
+        //cout << Re << endl << endl;
+        Quaterniond qe(Re);
+        qe = qe.conjugate();  
+        //cout << qe.coeffs().transpose() << endl << endl;
+
+        //cout << pd(t) << endl << pd(t-deltaT) << endl << endl;
+        Vector3d vd=(pd(t)-pd(t-deltaT))/deltaT;
+        //stampaVector(vd);
+
+        Quaterniond work = (qd(t+deltaT)*(qd(t).conjugate()));          //non so se il prodotto tra quaternioni si fa così
+        work.coeffs()*=(2/ deltaT );
+        //cout << work.coeffs().transpose() << endl << endl;
+
+        Vector3d omegad= work.vec();                                 //non sono sicuro che questa cosa funzioni
+        Vector3d xd_t=pd(t);
+        Quaterniond qd_t=qd(t);
+        VectorXd dotqk(6);
+        //if(l>-1 ){cout<<t<<" vd     "<<xd_t<<endl<<endl<<"om      "<<qd_t<<endl<<endl;}
+        
+        //cout << l << endl;
+        dotqk=  invDiffKinematicControlCompleteQuaternion(qk,xe,xd_t,vd,omegad,qe,qd_t,Kp, Kphi); 
+        //if(l>-1){cout<<dotqk<<endl<<endl;}
+        VectorXd qk1(6);
+        qk1= qk + dotqk*deltaT;
+        //if(l==2){cout<<qk1<<endl;}
+        q.push_back(qk1);
+        qk=qk1;    
+    }
+    return q;
+}
+
+VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi){
+    MatrixXd J=ur5Jac(qk); 
+
+    //cout<<qk<<endl<<endl<<J<<endl<< endl;
+    
+    if(almostZero(J.determinant())){ 
+        cout<<"VICINO A SINGOLARITA"<<endl;                                                               //come evitare le singolarità?
+        exit(1);
+    }
+    Quaterniond qp = qd*qe.conjugate();
+    Vector3d eo=qp.vec();
+    //double norm=eo.norm();                                              //Ho dei dubbi a cosa serva 
+    Vector3d part1= vd+Kp*(xd-xe);                               //!!!!!!!!!!!!!!!IMPORTANTE CAMBIARE NOME ALLE VARIABILI!!!!!!!!!!!!!
+    Vector3d part2= omegad+Kphi*eo;
+    VectorXd idk(6);
+    for(int i=0; i<3;i++){
+        idk(i)=part1(i);
+        idk(i+3)=part2(i);
+    }
+    //cout<<sp<<"     "<<xe<<endl;
+    //stampaVector(xe);
+    //stampaVector(part2);
+
+    VectorXd dotQ(6);
+    dotQ = (J.inverse())*idk;
+    //if(sp==8){cout<<qk<<endl<<endl<<J<<endl<<endl<<idk<<endl<< endl<<qp<<endl ;}  
+    //sp++;
+    return dotQ;
+}
+
+Vector3d pd(double ti){
+    Vector3d xd;
+    double t = ti/Tf;
+    if (t > 1){
+        xd = xef;
+    }
+        
+    else{
+        xd = t*xef + (1-t)*xe0;
+    }
+    return xd;
+}
+
+Vector3d phid(double ti){
+    Vector3d phid;
+    double t = ti/Tf;
+    if (t > 1){
+        phid = phief;
+    }
+        
+    else{
+        phid = t*phief + (1-t)*phie0;
+    }
+    return phid;
+}
+
+//Derived quaternion
+Quaterniond qd( double ti){
+    double t=ti/Tf;
+    Quaterniond qd;
+    if(t>1){
+        qd=qf;
+    }
+    else{
+        qd=q0.slerp(t,qf);              //non so se è giusto mettere t
+    }
+    return qd;
+}
+
+MatrixXd ur5Inverse(Vector3d &p60, Matrix3d &Re){
+            MatrixXd Th(6, 8);
+            
+           /* // from euler angles to rotation matrix R60                   //We should use the Re not R60 
+            AngleAxisd rollAngle(euler(0), Vector3d::UnitX());
+            AngleAxisd pitchAngle(euler(1), Vector3d::UnitY());
+            AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
+            
+            Quaterniond q = yawAngle * pitchAngle * rollAngle;
+            R60 = q.matrix();
+            //std::cout << "R60\n " << R60 << std::endl;*/
+
+            Affine3d hmTransf = Affine3d::Identity();
+            hmTransf.translation() = p60;
+            hmTransf.linear() = Re;
+            Matrix4d T60 = hmTransf.matrix();
+            //std::cout << "T60\n" << T60 << std::endl;
+            
+            //finding th1
+            Vector4d data(0, 0, -D(5), 1);
+            Vector4d p50 = (T60 * data);
+
+            double psi = atan2(p50(1), p50(0));
+            double p50xy = hypot(p50(1), p50(0));
+
+            if(p50xy < D(3)){
+                MatrixXd ones(6,1);
+                ones.setOnes();
+                Th = ones * NAN;
+                std::cout << "Position request in the unreachable cylinder" << std::endl;
+                return Th;
+            }
+
+            double phi1_1 = acos(D(3) / p50xy);
+            double phi1_2 = -phi1_1;
+
+            double th1_1 = psi + phi1_1 + M_PI/2;
+            double th1_2 = psi + phi1_2 + M_PI/2;
+
+            double p61z_1 = p60(0) * sin(th1_1) - p60(1) * cos(th1_1);
+            double p61z_2 = p60(0) * sin(th1_2) - p60(1) * cos(th1_2);
+
+            double th5_1_1 = acos((p61z_1 - D(3)) / D(5));
+            double th5_1_2 = -acos((p61z_1 - D(3)) / D(5));
+            double th5_2_1 = acos((p61z_2 - D(3)) / D(5));
+            double th5_2_2 = -acos((p61z_2 - D(3)) / D(5));
+
+            Matrix4d T10_1 = getRotationMatrix(th1_1, ALPHA(0), D(0), A(0));
+            Matrix4d T10_2 = getRotationMatrix(th1_2, ALPHA(0), D(0), A(0));
+
+            Matrix4d T16_1 = (T10_1.inverse()*T60).inverse();
+            Matrix4d T16_2 = (T10_2.inverse()*T60).inverse();
+
+            double zy_1 = T16_1(1,2);
+            double zx_1 = T16_1(0,2);
+
+            double zy_2 = T16_2(1,2);
+            double zx_2 = T16_2(0,2);
+            double th6_1_1, th6_1_2, th6_2_1, th6_2_2;
+
+            if(almostZero(sin(th5_1_1)) || (almostZero(zy_1) && almostZero(zx_1))){
+                std::cout << "singular configuration. Choosing arbitrary th6" << std::endl;
+                th6_1_1 = 0;
+            } else {
+                th6_1_1 = atan2((-zy_1 / sin(th5_1_1)), (zx_1 / sin(th5_1_1)));
+            }
+
+            if(almostZero(sin(th5_1_2)) || (almostZero(zy_1) && almostZero(zx_1))){
+                std::cout << "singular configuration. Choosing arbitrary th6" << std::endl;
+                th6_1_2 = 0;
+            } else {
+                th6_1_2 = atan2((-zy_1 / sin(th5_1_2)), (zx_1 / sin(th5_1_2)));
+            }
+
+            if(almostZero(sin(th5_2_1)) || (almostZero(zy_2) && almostZero(zx_2))){
+                std::cout << "singular configuration. Choosing arbitrary th6" << std::endl;
+                th6_2_1 = 0;
+            } else {
+                th6_2_1 = atan2((-zy_2 / sin(th5_2_1)), (zx_2 / sin(th5_2_1)));
+            }
+
+            if(almostZero(sin(th5_2_2)) || (almostZero(zy_2) && almostZero(zx_2))){
+                std::cout << "singular configuration. Choosing arbitrary th6" << std::endl;
+                th6_2_2 = 0;
+            } else {
+                th6_2_2 = atan2((-zy_2 / sin(th5_2_2)), (zx_2 / sin(th5_2_2)));
+            }
+
+            Matrix4d T61_1 = T16_1.inverse();
+            Matrix4d T61_2 = T16_2.inverse();
+
+            Matrix4d T54_1_1 = getRotationMatrix(th5_1_1, ALPHA(4), D(4), A(4));
+            Matrix4d T54_1_2 = getRotationMatrix(th5_1_2, ALPHA(4), D(4), A(4));
+            Matrix4d T54_2_1 = getRotationMatrix(th5_2_1, ALPHA(4), D(4), A(4));
+            Matrix4d T54_2_2 = getRotationMatrix(th5_2_2, ALPHA(4), D(4), A(4));
+
+            Matrix4d T65_1_1 = getRotationMatrix(th6_1_1, ALPHA(5), D(5), A(5));
+            Matrix4d T65_1_2 = getRotationMatrix(th6_1_2, ALPHA(5), D(5), A(5));
+            Matrix4d T65_2_1 = getRotationMatrix(th6_2_1, ALPHA(5), D(5), A(5));
+            Matrix4d T65_2_2 = getRotationMatrix(th6_2_2, ALPHA(5), D(5), A(5));
+
+            Matrix4d T41_1_1 = T61_1 * (T54_1_1 * T65_1_1).inverse();
+            Matrix4d T41_1_2 = T61_1 * (T54_1_2 * T65_1_2).inverse();
+            Matrix4d T41_2_1 = T61_2 * (T54_2_1 * T65_2_1).inverse();
+            Matrix4d T41_2_2 = T61_2 * (T54_2_2 * T65_2_2).inverse();
+
+            data << 0, -D(4), 0, 1;
+            Vector4d P = (T41_1_1 * data);
+            Vector3d P31_1_1(P(0),P(1),P(2));
+
+            P = (T41_1_2 * data);
+            Vector3d P31_1_2 (P(0),P(1),P(2));
+            
+            P = (T41_2_1 * data);
+            Vector3d P31_2_1 (P(0),P(1),P(2));
+            
+            P = (T41_2_2 * data);
+            Vector3d P31_2_2 (P(0),P(1),P(2));
+            
+            double th3_1_1_1, th3_1_1_2, th3_1_2_1, th3_1_2_2, 
+            th3_2_1_1, th3_2_1_2, th3_2_2_1, th3_2_2_2;
+
+            double C = (pow(P31_1_1.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
+            if(abs(C) > 1){
+                std::cout << "Point out of the work space for th3_1_1\n";
+                th3_1_1_1 = NAN;
+                th3_1_1_2 = NAN;
+            } else {
+                th3_1_1_1 = acos(C);
+                th3_1_1_2 = -acos(C);
+            }
+
+            C = (pow(P31_1_2.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
+            if(abs(C) > 1){
+                std::cout << "Point out of the work space for th3_1_2\n";
+                th3_1_2_1 = NAN;
+                th3_1_2_2 = NAN;
+            } else {
+                th3_1_2_1 = acos(C);
+                th3_1_2_2 = -acos(C);
+            }
+
+
+            C = (pow(P31_2_1.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
+            if(abs(C) > 1){
+                std::cout << "Point out of the work space for th3_2_1\n";
+                th3_2_1_1 = NAN;
+                th3_2_1_2 = NAN;
+            } else {
+                th3_2_1_1 = acos(C);
+                th3_2_1_2 = -acos(C);
+            }
+
+
+            C = (pow(P31_2_2.norm(), 2) - A(1) * A(1) - A(2) * A(2)) / (2 * A(1) * A(2));
+            if(abs(C) > 1){
+                std::cout << "Point out of the work space for th3_2_2\n";
+                th3_2_2_1 = NAN;
+                th3_2_2_2 = NAN;
+            } else {
+                th3_2_2_1 = acos(C);
+                th3_2_2_2 = -acos(C);
+            }
+
+
+            double th2_1_1_1, th2_1_1_2, th2_1_2_1, th2_1_2_2,
+            th2_2_1_1, th2_2_1_2, th2_2_2_1, th2_2_2_2;
+
+            th2_1_1_1 = -atan2(P31_1_1(1), -P31_1_1(0))+asin((A(2)*sin(th3_1_1_1))/P31_1_1.norm());
+            th2_1_1_2 = -atan2(P31_1_1(1), -P31_1_1(0))+asin((A(2)*sin(th3_1_1_2))/P31_1_1.norm());
+            th2_1_2_1 = -atan2(P31_1_2(1), -P31_1_2(0))+asin((A(2)*sin(th3_1_2_1))/P31_1_2.norm());
+            th2_1_2_2 = -atan2(P31_1_2(1), -P31_1_2(0))+asin((A(2)*sin(th3_1_2_2))/P31_1_2.norm());
+            th2_2_1_1 = -atan2(P31_2_1(1), -P31_2_1(0))+asin((A(2)*sin(th3_2_1_1))/P31_2_1.norm());
+            th2_2_1_2 = -atan2(P31_2_1(1), -P31_2_1(0))+asin((A(2)*sin(th3_2_1_2))/P31_2_1.norm());
+            th2_2_2_1 = -atan2(P31_2_2(1), -P31_2_2(0))+asin((A(2)*sin(th3_2_2_1))/P31_2_2.norm());
+            th2_2_2_2 = -atan2(P31_2_2(1), -P31_2_2(0))+asin((A(2)*sin(th3_2_2_2))/P31_2_2.norm());
+                
+            Matrix4d T21 = getRotationMatrix(th2_1_1_1, ALPHA(1), D(1), A(1));
+            Matrix4d T32 = getRotationMatrix(th3_1_1_1, ALPHA(2), D(2), A(2));
+            Matrix4d T41 = T41_1_1;
+            Matrix4d T43 = (T21 * T32).inverse() * T41;
+            double xy = T43(1, 0);
+            double xx = T43(0, 0);
+            double th4_1_1_1 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_1_1_2, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_1_1_2, ALPHA(2), D(2), A(2));
+            T41 = T41_1_1;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_1_1_2 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_1_2_1, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_1_2_1, ALPHA(2), D(2), A(2));
+            T41 = T41_1_2;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_1_2_1 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_1_2_2, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_1_2_2, ALPHA(2), D(2), A(2));
+            T41 = T41_1_2;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_1_2_2 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_2_1_1, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_2_1_1, ALPHA(2), D(2), A(2));
+            T41 = T41_2_1;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_2_1_1 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_2_1_2, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_2_1_2, ALPHA(2), D(2), A(2));
+            T41 = T41_2_1;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_2_1_2 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_2_2_1, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_2_2_1, ALPHA(2), D(2), A(2));
+            T41 = T41_2_2;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+            double th4_2_2_1 = atan2(xy, xx);
+
+            T21 = getRotationMatrix(th2_2_2_2, ALPHA(1), D(1), A(1));
+            T32 = getRotationMatrix(th3_2_2_2, ALPHA(2), D(2), A(2));
+            T41 = T41_2_2;
+            T43 = (T21 * T32).inverse() * T41;
+            xy = T43(1, 0);
+            xx = T43(0, 0);
+    double th4_2_2_2 = atan2(xy, xx);
+
+    Th.resize(6, 8);
+    Th.row(0) << th1_1, th1_1, th1_1, th1_1, th1_2, th1_2, th1_2, th1_2;
+    Th.row(1) << th2_1_1_1, th2_1_1_2, th2_1_2_1, th2_1_2_2, th2_2_2_1, th2_2_1_2, th2_2_2_1, th2_2_2_2;
+    Th.row(2) << th3_1_1_1, th3_1_1_2, th3_1_2_1, th3_1_2_2, th3_2_2_1, th3_2_1_2, th3_2_2_1, th3_2_2_2;
+    Th.row(3) << th4_1_1_1, th4_1_1_2, th4_1_2_1, th4_1_2_2, th4_2_2_1, th4_2_1_2, th4_2_2_1, th4_2_2_2;
+    Th.row(4) << th5_1_1, th5_1_1, th5_1_2, th5_1_2, th5_2_2, th5_2_1, th5_2_2, th5_2_2;
+    Th.row(5) << th6_1_1, th6_1_1, th6_1_2, th6_1_2, th6_2_2, th6_2_1, th6_2_2, th6_2_2;
+
+    return Th;
+}
+
+Matrix4d getRotationMatrix(double th, double alpha, double d, double a){
+    Matrix4d rotation;
+    rotation << cos(th), -sin(th)*cos(alpha), sin(th)*sin(alpha), a*cos(th),
+        sin(th), cos(th)*cos(alpha), -cos(th)*sin(alpha), a*sin(th),
+        0, sin(alpha), cos(alpha), d,
+        0, 0, 0, 1;
+
+    return rotation;                                        
+}
+
+MatrixXd purgeNanColumn(MatrixXd matrix){
+    MatrixXd newMatrix(6, 0);
+    int nColumns = 0;
+
+    for (int col = 0; col < matrix.cols(); ++col) {
+        bool hasNaN = matrix.col(col).array().isNaN().any();
+
+        if (!hasNaN) {
+            newMatrix.conservativeResize(matrix.rows(), nColumns + 1);
+            newMatrix.col(nColumns) = matrix.col(col);
+            ++nColumns;
+        }
+    }
+
+    return newMatrix;
+}
+
+void stampaVector(VectorXd v){
+    for (int cb=0;cb<v.size();cb++){
+        cout <<v(cb)<<"  ";
+    }
+    cout<<endl<<endl;
+}
+
+bool almostZero(double value){
+    return abs(value)<1e-7;
+}
