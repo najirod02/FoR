@@ -134,3 +134,12 @@ Remember to always [Build and Update](#how-to-create-and-build-the-packages) the
   A scale factor of **1** gives you measurements in **meters**. 
 
   And so on...
+
+- How can we grap the objects?
+
+  Knowing the X, Y of the object we need to specify the Z and the opening of the gripper.
+  
+  For **Z** we can use **0.73** and as **opening**, **45-45** which is the max.
+  After that, we can **close** the **gripper** with **-0.1 -0.1**.
+
+  **Note** that there can be some problems of **collisions** with object that can generate some **bugs**

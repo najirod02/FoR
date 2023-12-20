@@ -28,7 +28,12 @@ using namespace std;
  * NOTE
  * the gripper is about millimeters and NOT angles (max opening = 100mm)
  * gripper_sim True -> specify joint values + gripper (2 values, left + right)
- * rosrun ur5_invDiff ur5_invDiff 0.5 -0.5 0.4 0 0 0 
+ * rosrun ur5_invDiff ur5_invDiff 0.2 -0.30 0.73 0 0 0 45 45
+ * 
+ * this command should aproach the block X1-Y2-Z2-TWINFILLET from tavolo_blocks.world
+ * 
+ * to grap the object simply indicate the opening of -0.1 -0.1
+ * after that, you can move the object where you want
  */
 class InverseDifferential{
 
@@ -44,11 +49,12 @@ class InverseDifferential{
     const std::string TOPIC_SUB = std::string("/ur5/joint_states");
 
     const static int JOINT_NAMES = 6;
-    const double SCALAR_FACTOR = 1.0;
+    const double SCALAR_FACTOR = 10.0;
     const int RATE = 1000;
 
     Quaterniond q0,qf;
     Vector3d xe0,xef,phie0,phief;
+    Vector2d gripper;
     VectorXd q, q_des;
     VectorXd A, D, ALPHA;
 
@@ -89,6 +95,7 @@ class InverseDifferential{
             //read the position and euler values
             xef << std::stod(argv_[1]), std::stod(argv_[2]), std::stod(argv_[3]);
             phief << std::stod(argv_[4]), std::stod(argv_[5]), std::stod(argv_[6]);
+            gripper << std::stod(argv_[7]), std::stod(argv_[8]);
 
             xef *= SCALAR_FACTOR;
             phief *= SCALAR_FACTOR;
@@ -109,8 +116,8 @@ class InverseDifferential{
 
             if(gripper_sim){
                 q_des.conservativeResize(q_des.size() + 2);
-                q_des(q_des.size()-2) = 0;
-                q_des(q_des.size()-1) = 0;
+                q_des(q_des.size()-2) = gripper[0];
+                q_des(q_des.size()-1) = gripper[1];
 
                 std::vector<double> v3(&q_des[0], q_des.data()+q_des.cols()*q_des.rows());
                 msg.data = v3;
@@ -150,7 +157,7 @@ class InverseDifferential{
             ros::Subscriber sub = n.subscribe(TOPIC_SUB, 1000, &InverseDifferential::receive_jstate, this);
             ros::Rate loop_rate(RATE);
 
-            ros::Duration(1).sleep();
+            ros::Duration(0.5).sleep();
             ros::spinOnce();//IMPORTANT!!! to make sure that the initial configuration is read from the subscriber
 
             //print initial q state
@@ -165,11 +172,15 @@ class InverseDifferential{
             n.getParam("/gripper_sim", gripper_sim);
             //gripper_sim = 0 if false (treated as  a rigid body)
 
-            //read the actual position of end effector
+            //get initial pose of the robot knowing the initial joint states
             Matrix3d Re;
-            ur5Direct(xe0, Re, xef);
+            //cout << "q\n" << q << endl;
+            ur5Direct(xe0, Re, q);
+
             phie0 = rotationMatrixToEulerAngles(Re);
 
+            //calculate the trajectory of robot by a function of time
+            //and quaternions
             VectorXd T;
             double L=(Tf-Tb)/deltaT;
             T.resize(L+1);
@@ -180,19 +191,22 @@ class InverseDifferential{
                 time +=0.1;
             } 
             
+            //from the initial configuration
             q0 = eul2quat(phie0);
-
+            //from the desired final configuration
             qf = eul2quat(phief);
 
             Vector3d xd0 = pd(0);
+
             Matrix3d R0 = eul2rotm(phid(0));
-            
+
             MatrixXd TH0 = ur5Inverse(xd0, R0);
+            //cout << "THO" << endl << TH0 << endl << endl;
             MatrixXd M = purgeNanColumn(TH0);
 
             if(M.size() == 0) {cout << "Motion not possible\n"; return;}
 
-            VectorXd th0(6);
+            VectorXd th0(JOINT_NAMES);
             th0=M.col(0);
 
             Matrix3d Kp = 10*MatrixXd::Identity(3,3);
@@ -203,7 +217,7 @@ class InverseDifferential{
 
             int k =0;
             MatrixXd v1;
-            v1.resize(6, 100);
+            v1.resize(JOINT_NAMES, (Tf - Tb) / deltaT);
             auto iterator = l.begin();
 
             //from list l to matrix of solutions
@@ -216,15 +230,30 @@ class InverseDifferential{
             cout << "Starting motion\n";
             int i=0;
             while(ros::ok()){
+                //cout << endl << v1.col(i) << endl;
                 send_des_jstate(joint_pub, gripper_sim, v1.col(i++));
                 ros::spinOnce();
                 loop_rate.sleep();
 
-                if(i >= 100) break;
+                if(i >= (Tf - Tb) / deltaT) break;
             }
 
+            //printing list l solutions
+            //to print the Th values of matlab
+            /*
+            k = 1;
+            for(auto i:l){
+                VectorXd v1(6);
+                v1 = i;
+                cout<<k<<"      ";
+                stampaVector(v1);
+                //cout<<k<<"        "<<v1(0)<<" "<< v1(1)<<" "<< v1(2)<<" "<< v1(3)<<" "<< v1(4)<<" "<< v1(5)<<endl;
+                k++;
+            }
+            //*/
+
             //print final q state
-            ros::Duration(1).sleep();
+            ros::Duration(0.5).sleep();
             ros::spinOnce();
             std::cout << "final q [ ";
             for(int i=0; i<q.size(); ++i){
@@ -235,25 +264,7 @@ class InverseDifferential{
 
         Vector3d rotationMatrixToEulerAngles(Matrix3d &R)
         {
-            float sy = sqrt(R(0,0) * R(0,0) +  R(1,0) * R(1,0) );
-        
-            bool singular = sy < 1e-6; // If
-        
-            float x, y, z;
-            if (!singular)
-            {
-                x = atan2(R(2,1) , R(2,2));
-                y = atan2(-R(2,0), sy);
-                z = atan2(R(1,0), R(0,0));
-            }
-            else
-            {
-                x = atan2(-R(1,2), R(1,1));
-                y = atan2(-R(2,0), sy);
-                z = 0;
-            }
-            return Vector3d(x, y, z);
-        
+            return R.eulerAngles(2, 1, 0).transpose();
         }
 
         Matrix3d eul2rotm(Vector3d euler){
@@ -289,7 +300,7 @@ class InverseDifferential{
 
             Matrix4d t60 = t10*t21*t32*t43*t54*t65;
 
-            xe = t60.block(0, 3, 3, 1);
+            xe = t60.block(0, 3, 3, 3);
             Re = t60.block(0, 0, 3, 3);
 
             return t60;
@@ -357,16 +368,16 @@ class InverseDifferential{
             VectorXd qk(6);
             qk=TH0;
             double t;
-            list <VectorXd> q;
+            list<VectorXd> q;
             q.push_back(qk);
             
             for(int l=1;l<T.size()-1;++l){
                 t=T(l);
                 ur5Direct(xe,Re,qk);
+
                 //cout << Re << endl << endl;
                 Quaterniond qe(Re);
                 qe = qe.conjugate();  
-                //cout << qe.coeffs().transpose() << endl << endl;
 
                 //cout << pd(t) << endl << pd(t-deltaT) << endl << endl;
                 Vector3d vd=(pd(t)-pd(t-deltaT))/deltaT;
@@ -383,14 +394,16 @@ class InverseDifferential{
                 //if(l>-1 ){cout<<t<<" vd     "<<xd_t<<endl<<endl<<"om      "<<qd_t<<endl<<endl;}
                 
                 //cout << l << endl;
-                dotqk=  invDiffKinematicControlCompleteQuaternion(qk,xe,xd_t,vd,omegad,qe,qd_t,Kp, Kphi); 
+                dotqk =  invDiffKinematicControlCompleteQuaternion(qk,xe,xd_t,vd,omegad,qe,qd_t,Kp, Kphi); 
                 //if(l>-1){cout<<dotqk<<endl<<endl;}
+
                 VectorXd qk1(6);
                 qk1= qk + dotqk*deltaT;
                 //if(l==2){cout<<qk1<<endl;}
                 q.push_back(qk1);
                 qk=qk1;    
             }
+
             return q;
         }
 
@@ -403,7 +416,7 @@ class InverseDifferential{
                 cout<<"VICINO A SINGOLARITA"<<endl;
                 //a possible way to avoid the singularities is to
                 //use the damped matrix
-                exit(1);
+                //exit(1);
             }
             Quaterniond qp = qd*qe.conjugate();
             Vector3d eo=qp.vec();
@@ -759,8 +772,8 @@ class InverseDifferential{
 };
 
 int main(int argc, char **argv){
-    if(argc < 7) {
-        std::cout << "Insert exactly [x, y, z] for position and [A, B, Γ] for rotation (in grads)" << std::endl;
+    if(argc < 9) {
+        std::cout << "Insert exactly [x, y, z] for position, [A, B, Γ] for rotation (in grads) and [left, right] for the opening of the gripper" << std::endl;
         return 1;
     }
 

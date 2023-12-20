@@ -175,7 +175,7 @@ class DirectPublisher{
             joint_pub = n.advertise<std_msgs::Float64MultiArray>(TOPIC, 1000);
             sub = n.subscribe(TOPIC_SUB, 1000, &DirectPublisher::receive_jstate, this);
  
-            ros::Duration(2).sleep();//sleep for 2 seconds
+            ros::Duration(0.5).sleep();//sleep for half second
             ros::spinOnce();//IMPORTANT!!! to make sure that the initial configuration is read from the subscriber
 
             //print initial q state
@@ -202,7 +202,7 @@ class DirectPublisher{
             send_des_jstate(q_des);
  
             //print final q state
-            ros::Duration(1).sleep();
+            ros::Duration(0.5).sleep();
             ros::spinOnce();
             std::cout << "final q [ ";
             for(int i=0; i<q.size(); ++i){

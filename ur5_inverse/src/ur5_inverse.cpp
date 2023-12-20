@@ -408,6 +408,8 @@ class InversePublisher{
             q_des(q_des.size()-2) = 0;
             q_des(q_des.size()-1) = 0;
 
+            //std::cout << q_des << std::endl;
+
             std::vector<double> v3(&q_des[0], q_des.data() + q_des.cols() * q_des.rows());
             msg.data = v3;
 
@@ -433,7 +435,7 @@ class InversePublisher{
             //std::cout << "pe " << std::endl << pe << std::endl;
             //std::cout << "euler " << std::endl << euler << std::endl;
 
-            ros::init(argc, argv, "ur5_direct", ros::init_options::AnonymousName);
+            ros::init(argc, argv, "ur5_inverse", ros::init_options::AnonymousName);
             ros::NodeHandle n;
 
             //create and subscribe to topics
