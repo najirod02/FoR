@@ -109,7 +109,7 @@ class InversePublisher{
             Eigen::AngleAxisd pitchAngle(euler(1), Eigen::Vector3d::UnitY());
             Eigen::AngleAxisd yawAngle(euler(2), Eigen::Vector3d::UnitZ());
             
-            Eigen::Quaterniond q = yawAngle * pitchAngle * rollAngle;
+            Eigen::Quaterniond q = rollAngle * pitchAngle * yawAngle;
             R60 = q.matrix();
             //std::cout << "R60\n " << R60 << std::endl;
 
@@ -209,7 +209,7 @@ class InversePublisher{
             Eigen::Matrix4d T41_2_1 = T61_2 * (T54_2_1 * T65_2_1).inverse();
             Eigen::Matrix4d T41_2_2 = T61_2 * (T54_2_2 * T65_2_2).inverse();
 
-            data << 0, -D(4), 0, 1;
+            data << 0, -D(3), 0, 1;
             Eigen::ArrayXd P = (T41_1_1 * data).topRows(4);
             Eigen::Vector3d P31_1_1 = P.topRows(0).leftCols(3);
 
