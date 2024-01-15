@@ -172,7 +172,7 @@ class InverseDifferential{
             ur5Direct(xe0, Re, q);
             phie0 = rotationMatrixToEulerAngles(Re);
             Matrix3d workM = eul2rotm(phie0);
-            cout << "phie0: " << phie0 << endl;
+            //cout << "phie0: " << phie0 << endl;
 
             /**
             Quaterniond q_test = eul2quat(phie0);
@@ -193,9 +193,12 @@ class InverseDifferential{
             } 
             
             //from the initial configuration
-            q0 = Quaterniond(workM);
+            q0 = Quaterniond(workM).conjugate();
             //from the desired final configuration
-            qf = eul2quat(phief).conjugate();
+            qf = eul2quat(phief);
+
+            cout << "DEBUGGING qo, qf\n" << "q0:\n" << q0.coeffs() << "\nworkM\n" << workM << "\nphie0:\n" << phie0 << endl;
+            cout << "qo:\n" << q0.coeffs() << endl << "qf:\n" << qf.coeffs() << endl;
 
             Vector3d xd0 = pd(0);
             Matrix3d R0 = eul2rotm(phid(0));
@@ -216,7 +219,17 @@ class InverseDifferential{
             Matrix3d Kq = -10*MatrixXd::Identity(3,3);
             
             list <VectorXd> l;
-            //TODO: check inverse kinematic
+            //TODO: check from the 2 functions in invDiff
+            /**
+             * sono state apportate alcune modifiche, la inverse kinematic ora dovrebbe essere ok, 
+             * può capitare qualche variazione ma questa è per arrotondamenti o per gazebo stesso.
+             * 
+             * i fixme presenti sono per provare alcuni test o per ricordare valori di default
+             * 
+             * rimane da controllare bene i QUATERNIONI delle due funzioni di invDiff
+             * 
+             * UPDATE: errore in qo e qf per calcolo slerp abbastanza importante
+             */
             l = invDiffKinematicControlSimCompleteQuaternion(th0,T, Kp, Kq); 
 
             int k =0;
@@ -269,7 +282,9 @@ class InverseDifferential{
 
         Vector3d rotationMatrixToEulerAngles(Matrix3d &R)
         {
-            Vector3d euler = R.eulerAngles(0,1,2);
+            Quaterniond quat(R);
+            quat.normalize();
+            Vector3d euler = quat.toRotationMatrix().eulerAngles(0,1,2);
             for(int i=0; i<euler.size(); ++i){
                 if(almostZero(euler(i))) euler(i) = 0;
             }
@@ -282,7 +297,8 @@ class InverseDifferential{
             AngleAxisd pitchAngle(euler(1), Vector3d::UnitY());
             AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
                     
-            Quaterniond q =  rollAngle * pitchAngle * yawAngle ; 
+            Quaterniond q =  rollAngle * pitchAngle * yawAngle; 
+            q.normalize();
             
             Matrix3d R60 = q.matrix();
             return R60;
@@ -295,7 +311,7 @@ class InverseDifferential{
             AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
                     
             Quaterniond q =  rollAngle * pitchAngle * yawAngle ;  
-            //FIXME: return q.conjugate();
+
             return q;
         }
 
@@ -384,21 +400,24 @@ class InverseDifferential{
             for(int l=1;l<T.size()-1;++l){
                 t=T(l);
                 ur5Direct(xe,Re,qk);
-                cout << "Re invDiffKinematicComplete: " << endl << Re << endl;
+                //cout << "Re invDiffKinematicComplete: " << endl << Re << endl;
                 //cout << Re << endl << endl;
                 Quaterniond qe(Re);
                 qe = qe.conjugate();  
 
                 //cout << pd(t) << endl << pd(t-deltaT) << endl << endl;
                 Vector3d vd=(pd(t)-pd(t-deltaT))/deltaT;
-                //stampaVector(vd);
+                cout << "vd:\n";
+                stampaVector(vd);
 
                 Quaterniond work = qd(t+deltaT)*(qd(t).conjugate());
                 work.coeffs()*=(2/deltaT);
-                work = work.conjugate();
-                cout << "work: " << work.coeffs() << endl << endl;
+                cout << "work:\n" << work.coeffs() << endl << endl;
 
                 Vector3d omegad= work.vec();    
+                cout << "omegad:\n";
+                stampaVector(omegad);
+
                 Vector3d xd_t=pd(t);
                 Quaterniond qd_t=qd(t);
                 VectorXd dotqk(6);
@@ -433,13 +452,13 @@ class InverseDifferential{
                 //exit(1);
             }
 
-            //FIXME: l'errore più notevole è nei quaternioni
             Quaterniond qp = qd*qe.conjugate();
+            qp = qp.conjugate();
             cout << "qp: " << endl << qp.coeffs() << endl;
-            cout << "qd: " << endl << qd.coeffs() << endl;
-            cout << "qe: " << endl << qe.coeffs() << endl;
+            //cout << "qd: " << endl << qd.coeffs() << endl;
+            //cout << "qe: " << endl << qe.coeffs() << endl;
             Vector3d eo=qp.vec();
-            cout << "eo: " << endl << eo << endl;
+            //cout << "eo: " << endl << eo << endl;
             Vector3d part1= vd+Kp*(xd-xe);
             Vector3d part2= omegad+Kphi*eo;
             VectorXd idk(6);
@@ -515,9 +534,9 @@ class InverseDifferential{
 
             Affine3d hmTransf = Affine3d::Identity();
             hmTransf.translation() = p60;
-            hmTransf.linear() = R60;//FIXME: default was Re
+            hmTransf.linear() = R60;
             Matrix4d T60 = hmTransf.matrix();
-            std::cout << "T60\n" << T60 << std::endl;
+            //std::cout << "T60\n" << T60 << std::endl;
             
             //finding th1
             Vector4d data(0, 0, -D(5), 1);
