@@ -112,7 +112,7 @@ class DirectPublisher{
 
             Eigen::Matrix4d t60 = t10*t21*t32*t43*t54*t65;
 
-            pe = t60.block(0, 3, 3, 3);
+            pe = t60.block(0, 3, 3, 1);
             Re = t60.block(0, 0, 3, 3);
         }
 

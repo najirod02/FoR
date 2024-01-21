@@ -156,7 +156,7 @@ class InverseDifferential{
             ros::Subscriber sub = n.subscribe(TOPIC_SUB, 1000, &InverseDifferential::receive_jstate, this);
             ros::Rate loop_rate(RATE);
 
-            ros::Duration(0.5).sleep();
+            ros::Duration(1).sleep();
             ros::spinOnce();//IMPORTANT!!! to make sure that the initial configuration is read from the subscriber
 
             //print initial q state
@@ -171,7 +171,7 @@ class InverseDifferential{
             //cout << "q\n" << q << endl;
             ur5Direct(xe0, Re, q);
             phie0 = rotationMatrixToEulerAngles(Re);
-            Matrix3d workM = eul2rotm(phie0);
+            Matrix3d workM = Re;
             //cout << "phie0: " << phie0 << endl;
 
             /**
@@ -193,27 +193,32 @@ class InverseDifferential{
             } 
             
             //from the initial configuration
-            q0 = Quaterniond(workM).conjugate();
+            q0 = Quaterniond(workM);
             //from the desired final configuration
             qf = eul2quat(phief);
 
-            cout << "DEBUGGING qo, qf\n" << "q0:\n" << q0.coeffs() << "\nworkM\n" << workM << "\nphie0:\n" << phie0 << endl;
-            cout << "qo:\n" << q0.coeffs() << endl << "qf:\n" << qf.coeffs() << endl;
+            //cout << q0.toRotationMatrix().eulerAngles(0,1,2) << endl << endl;
+            //cout << qf.toRotationMatrix().eulerAngles(0,1,2) << endl << endl;
+
+            cout << "DEBUGGING qo, qf\n" << "q0:\n" << q0.coeffs() << "\nqf:\n" << qf.coeffs() 
+            << "\nworkM\n" << workM << "\nphie0:\n" << phie0 << endl;
 
             Vector3d xd0 = pd(0);
             Matrix3d R0 = eul2rotm(phid(0));
-            MatrixXd TH0 = ur5Inverse(xd0, R0);
+            //NOTE: dato che sappiamo già i valori dei joint iniziali è inutile utilizzare la inverse per ricavarli
+            //MatrixXd TH0 = ur5Inverse(xd0, R0);
 
             //cout << "xd0" << endl;
             //stampaVector(xd0);
             //cout << "R0" << endl << R0 << endl;
-            cout << "THO" << endl << TH0 << endl << endl;
-            MatrixXd M = purgeNanColumn(TH0);
+            //cout << "THO" << endl << TH0 << endl << endl;
+            //MatrixXd M = purgeNanColumn(TH0);
 
-            if(M.size() == 0) {cout << "Motion not possible\n"; return;}
+            //if(M.size() == 0) {cout << "Motion not possible\n"; return;}
 
             VectorXd th0(JOINT_NAMES);
-            th0=M.col(0);
+            //th0=M.col(0);
+            th0 = q;
 
             Matrix3d Kp = 10*MatrixXd::Identity(3,3);
             Matrix3d Kq = -10*MatrixXd::Identity(3,3);
@@ -271,7 +276,7 @@ class InverseDifferential{
             //*/
 
             //print final q state
-            ros::Duration(0.5).sleep();
+            ros::Duration(1).sleep();
             ros::spinOnce();
             std::cout << "final q [ ";
             for(int i=0; i<q.size(); ++i){
@@ -326,7 +331,7 @@ class InverseDifferential{
 
             Matrix4d t60 = t10*t21*t32*t43*t54*t65;
 
-            xe = t60.block(0, 3, 3, 3);
+            xe = t60.block(0, 3, 3, 1);
             Re = t60.block(0, 0, 3, 3);
 
             return t60;
@@ -403,7 +408,6 @@ class InverseDifferential{
                 //cout << "Re invDiffKinematicComplete: " << endl << Re << endl;
                 //cout << Re << endl << endl;
                 Quaterniond qe(Re);
-                qe = qe.conjugate();  
 
                 //cout << pd(t) << endl << pd(t-deltaT) << endl << endl;
                 Vector3d vd=(pd(t)-pd(t-deltaT))/deltaT;
@@ -445,7 +449,7 @@ class InverseDifferential{
 
             //cout<<qk<<endl<<endl<<J<<endl<< endl;
             
-            if(almostZero(J.determinant())){ 
+            if(abs(J.determinant()) < pow(10,-3)){ 
                 cout<<"VICINO A SINGOLARITA"<<endl;
                 //a possible way to avoid the singularities is to
                 //use the damped matrix
@@ -453,7 +457,6 @@ class InverseDifferential{
             }
 
             Quaterniond qp = qd*qe.conjugate();
-            qp = qp.conjugate();
             cout << "qp: " << endl << qp.coeffs() << endl;
             //cout << "qd: " << endl << qd.coeffs() << endl;
             //cout << "qe: " << endl << qe.coeffs() << endl;
