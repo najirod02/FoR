@@ -20,9 +20,11 @@ static int sp=0;
 const static int JOINT_NAMES = 6;
 const double SCALAR_FACTOR = 10.0;
 const double DAMPING_FACTOR = 1e-6;
+const double K0 = 100.0;
 static Quaterniond q0,qf;
 static Vector3d xe0,xef,phie0,phief;
 static VectorXd A(6),D(6),ALPHA(6);
+static Matrix3d K;
 
 
 bool almostZero(double value);
@@ -36,6 +38,7 @@ void ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des);
 VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi);
 list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorXd T,Matrix3d Kp,Matrix3d Kphi);
 void stampaVector(VectorXd v);
+VectorXd qdot(VectorXd q);
 MatrixXd ur5Jac(VectorXd Th);
 MatrixXd myJac(VectorXd v);
 // Vector3d rotationMatrixToEulerAngles2(Matrix3d &R);
@@ -59,11 +62,12 @@ int main(){
     ALPHA<<M_PI/2, 0, 0, M_PI/2, -M_PI/2, 0;
     A *= SCALAR_FACTOR;
     D *= SCALAR_FACTOR;
+    K = MatrixXd::Identity(3,3);
 
     VectorXd qstart (6),qfin(6);
-    xe0<< 0.1518 ,-0.1908 ,0.4550;
-    xe0*=SCALAR_FACTOR;
-    qstart<< 1.6644, -2.2318, 2.6039, -1.9429, 1.5708, -0.0936;
+    //xe0<< 0.1518 ,-0.1908 ,0.4550;
+    //xe0*=SCALAR_FACTOR;
+    qstart<< -0.320003, -0.780011, -2.56108, -1.63001, -1.57001, 3.49001;
     
     xef <<0.1816 ,-0.2007 ,0.4837;
     xef*=SCALAR_FACTOR;
@@ -73,7 +77,7 @@ int main(){
     Matrix3d Refin;
     ur5Direct(xef,Refin,qfin);
     
-    // cout<<xef.transpose()<<endl << rotationMatrixToEulerAngles(Refin).transpose()<<endl;
+    //cout<<xef.transpose()<<endl << rotationMatrixToEulerAngles(Refin).transpose()<<endl;
     // return 0;
     //0.164246 -0.183591 0.460504 1.62536 2.98626 2.97065;
     Matrix3d Re0;
@@ -85,6 +89,9 @@ int main(){
     
     //NOTE: SCALAR_FACTOR is not needed after ur5Direct because the function itself uses it
     ur5Direct(xe0,Re0,qstart);
+    //cout << "xe0\n" << xe0 << endl;
+    cout << "qstart\n" << qstart << endl;
+    cout << "Re0\n" << Re0 << endl;
 
     phie0 = rotationMatrixToEulerAngles(Re0);
     phief = rotationMatrixToEulerAngles(Refin);
@@ -93,7 +100,7 @@ int main(){
     cout << "angles phie0\n";
     stampaVector(phie0);
 
-    cout << "xef\n" << xef.transpose() << endl;
+    //cout << "xef\n" << xef.transpose() << endl;
     cout << endl << "angles phief\n";
     stampaVector(phief);
     
@@ -119,7 +126,7 @@ int main(){
     q0 = eulerAnglesToQuaternion(phie0); 
     qf = eulerAnglesToQuaternion(phief); 
     // cout<<Re0<<endl<<quaternionToRotationMatrix(q0)<<endl<<Refin<<endl<<quaternionToRotationMatrix(qf)<<endl;
-    // //cout <<q0<< endl <<qf<<endl;
+    cout <<q0.coeffs()<< endl <<qf.coeffs()<<endl;
     // return 0;
     
     VectorXd T;
@@ -296,7 +303,7 @@ list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorX
         Vector3d xd_t=xd(t);
         Quaterniond qd_t=qd(t);
         VectorXd dotqk(6);
-        //if(l>-1 ){cout<<t<<" vd     "<<xd_t<<endl<<endl<<"om      "<<qd_t<<endl<<endl;}
+        //if(l>-1 ){cout<<t<<" vd     "<<  xd_t << endl << endl << "om      "<< qd_t.coeffs() << endl << endl;}
         
         dotqk = invDiffKinematicControlCompleteQuaternion(qk,xe,xd_t,vd,omegad,qe,qd_t,Kp, Kphi); 
         //if(l>-1){cout<<dotqk<<endl<<endl;}
@@ -336,6 +343,9 @@ VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vecto
     //stampaVector(part2);
 
     VectorXd dotQ(6);
+    //J = J.block(0,0,3,6);
+    //dotQ = J.completeOrthogonalDecomposition().pseudoInverse() * (vd + K*(xd-xe)) + (MatrixXd::Identity(6,6)-
+    //J.completeOrthogonalDecomposition().pseudoInverse()*J) * qdot(qk).transpose();
     dotQ = (J.inverse())*idk;
     //if(sp==8){cout<<qk<<endl<<endl<<J<<endl<<endl<<idk<<endl<< endl<<qp<<endl ;}  
     //sp++;
@@ -379,6 +389,14 @@ Quaterniond qd( double ti){
         qd=q0.slerp(t,qf);
     }
     return qd;
+}
+
+VectorXd qdot(VectorXd q){
+    VectorXd qd0;
+
+    qd0 = -K0/6*(q/(2*M_PI));
+
+    return qd0;
 }
 
 MatrixXd ur5Inverse(Vector3d &p60, Matrix3d &Re){
@@ -621,7 +639,7 @@ MatrixXd ur5Inverse(Vector3d &p60, Matrix3d &Re){
             T43 = (T21 * T32).inverse() * T41;
             xy = T43(1, 0);
             xx = T43(0, 0);
-    double th4_2_2_2 = atan2(xy, xx);
+            double th4_2_2_2 = atan2(xy, xx);
 
     Th.resize(6, 8);
     Th.row(0) << th1_1, th1_1, th1_1, th1_1, th1_2, th1_2, th1_2, th1_2;
