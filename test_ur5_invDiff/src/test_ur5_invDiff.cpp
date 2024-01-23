@@ -65,13 +65,13 @@ int main(){
     K = MatrixXd::Identity(3,3);
 
     VectorXd qstart (6),qfin(6);
-    //xe0<< 0.1518 ,-0.1908 ,0.4550;
-    //xe0*=SCALAR_FACTOR;
-    qstart<< -0.320003, -0.780011, -2.56108, -1.63001, -1.57001, 3.49001;
+    xe0<< 0.1518 ,-0.1908 ,0.4544;
+    xe0*=SCALAR_FACTOR;
+    qstart << 1.7013, -2.4310, 2.4504, -0.9660, 1.6474, 0.3430;
     
     xef <<0.1816 ,-0.2007 ,0.4837;
     xef*=SCALAR_FACTOR;
-    qfin<< 1.7913, -2.1503, 2.4990, -1.9195, 1.5708, -0.2205;
+    qfin << 1.8484, -2.2996, 2.3856, -1.1500, 1.7082, 0.2817;
     
     //initial and final angles are 0, 0, 0
     Matrix3d Refin;
@@ -101,7 +101,7 @@ int main(){
     stampaVector(phie0);
 
     //cout << "xef\n" << xef.transpose() << endl;
-    cout << endl << "angles phief\n";
+    cout << "angles phief\n";
     stampaVector(phief);
     
     //stampaVector(qstart); 
@@ -123,10 +123,10 @@ int main(){
     //phief << -M_PI/2+0.1, M_PI/3, 2*M_PI/3; //Safer orientation
     //phief << M_PI/4, M_PI/4 , M_PI/4; //Safer orientation
     
-    q0 = eulerAnglesToQuaternion(phie0); 
-    qf = eulerAnglesToQuaternion(phief); 
+    q0 = eulerAnglesToQuaternion(phie0).conjugate(); 
+    qf = eulerAnglesToQuaternion(phief).conjugate(); 
     // cout<<Re0<<endl<<quaternionToRotationMatrix(q0)<<endl<<Refin<<endl<<quaternionToRotationMatrix(qf)<<endl;
-    cout <<q0.coeffs()<< endl <<qf.coeffs()<<endl;
+    cout << "q0\n" << q0.coeffs().transpose() << endl << "qf\n" << qf.coeffs().transpose() << endl << endl << endl;
     // return 0;
     
     VectorXd T;
@@ -288,7 +288,7 @@ list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorX
         t=T(l);
         ur5Direct(xe,Re,qk);
         
-        Quaterniond qe=rotationMatrixToQuaternion(Re);
+        Quaterniond qe=rotationMatrixToQuaternion(Re).conjugate();
         //cout<<Re<<endl<<endl;                                         
 
         Vector3d vd=(xd(t)-xd(t-deltaT))/deltaT;
@@ -317,15 +317,6 @@ list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorX
 }
 
 VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi){
-    MatrixXd J=ur5Jac(qk);
-
-    if(abs(J.determinant())<1e-3){ 
-        cout<<"VICINO A SINGOLARITA"<<endl;
-        //use dumped pseudo inverse matrix
-        MatrixXd identity = MatrixXd::Identity(6,6);
-        J = ur5Jac(qk).transpose()*((ur5Jac(qk) * ur5Jac(qk).transpose() + DAMPING_FACTOR*identity).inverse());
-        //exit(1);
-    }
         
     Quaterniond qp = qd*qe.conjugate();
     
@@ -341,9 +332,22 @@ VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vecto
     //cout<<sp<<"     "<<xe<<endl;
     //stampaVector(xe);
     //stampaVector(part2);
-
+    MatrixXd J=ur5Jac(qk);
     VectorXd dotQ(6);
+
+    if(abs(J.determinant())<1e-3){ 
+        cout<<"VICINO A SINGOLARITA"<<endl;
+        //use dumped pseudo inverse matrix
+        MatrixXd identity = MatrixXd::Identity(6,6);
+        J = ur5Jac(qk).transpose()*((ur5Jac(qk) * ur5Jac(qk).transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());
+        
+        dotQ = (J.inverse())*idk;
+        return dotQ;
+    }
+
     //J = J.block(0,0,3,6);
+    //cout << "J\n" << J << endl;
+    //cout << "qdot(qk)\n" << qdot(qk) << endl;
     //dotQ = J.completeOrthogonalDecomposition().pseudoInverse() * (vd + K*(xd-xe)) + (MatrixXd::Identity(6,6)-
     //J.completeOrthogonalDecomposition().pseudoInverse()*J) * qdot(qk).transpose();
     dotQ = (J.inverse())*idk;
@@ -688,53 +692,6 @@ void stampaVector(VectorXd v){
 
 bool almostZero(double value){
     return abs(value)<1e-7;
-}
-
-MatrixXd myJac(VectorXd v){
-    VectorXd q_des(6);
-
-    q_des<<v(0), v(1) ,  v(2), v(3) ,v(4),v(5) ;
-
-    Matrix4d t10 = getRotationMatrix(q_des(0), ALPHA(0), D(0), A(0));
-    Matrix4d t21 = getRotationMatrix(q_des(1), ALPHA(1), D(1), A(1));
-    Matrix4d t32 = getRotationMatrix(q_des(2), ALPHA(2), D(2), A(2));
-    Matrix4d t43 = getRotationMatrix(q_des(3), ALPHA(3), D(3), A(3));
-    Matrix4d t54 = getRotationMatrix(q_des(4), ALPHA(4), D(4), A(4));
-    Matrix4d t65 = getRotationMatrix(q_des(5), ALPHA(5), D(5), A(5));
-
-    Matrix4d t20 = t10*t21;
-    Matrix4d t30 = t10*t21*t32;
-    Matrix4d t40 = t10*t21*t32*t43;
-    Matrix4d t50 = t10*t21*t32*t43*t54;
-    Matrix4d t60 = t10*t21*t32*t43*t54*t65;
-    
-    Vector3d z0(0,0,1);
-    Vector3d z1=t10.block(0,2,3,1);
-    Vector3d z2=t20.block(0,2,3,1);
-    Vector3d z3=t30.block(0,2,3,1);
-    Vector3d z4=t40.block(0,2,3,1);
-    Vector3d z5=t50.block(0,2,3,1);
-
-    Vector3d p0(0,0,0);
-    Vector3d p1=t10.block(0,3,3,1);
-    Vector3d p2=t20.block(0,3,3,1);
-    Vector3d p3=t30.block(0,3,3,1);
-    Vector3d p4=t40.block(0,3,3,1);
-    Vector3d p5=t50.block(0,3,3,1);
-    Vector3d P=t60.block(0,3,3,1);
-
-    MatrixXd J;
-    J.resize(6,6);
-
-    J.col(0)<<(z0.cross(P-p0)), z0;
-    J.col(1)<<(z1.cross(P-p1)), z1;
-    J.col(2)<<(z2.cross(P-p2)), z2;
-    J.col(3)<<(z3.cross(P-p3)), z3;
-    J.col(4)<<(z4.cross(P-p4)), z4;
-    J.col(5)<<(z5.cross(P-p5)), z5;
-    
-    return J;
-    
 }
 
 // Funzione per convertire una matrice di rotazione in angoli di Eulero

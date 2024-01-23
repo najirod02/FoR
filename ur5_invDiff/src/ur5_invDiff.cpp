@@ -174,15 +174,24 @@ class InverseDifferential{
             //cout << "q\n" << q << endl;
             ur5Direct(xe0, Re, qstart);
             phie0 = rotationMatrixToEulerAngles(Re);
+
             //FIXME: with some configuration, the joints overshoot
             cout << "qstart\n" << qstart << endl;
             cout << "Re\n" << Re << endl;
             cout << "phie0\n" << phie0.transpose() << endl;
             cout << "phief\n" << phief.transpose() << endl << endl;
-            //overriding the angles, permits to execute with no errors
+            
+            //FIXME: overriding the angles, permits to execute with no errors
             //phie0 << 3.14159, -3.14159, -3.14159 ;
             //phief << 3.14159, -3.14159, -3.14159 ;
-            
+
+            /*FIXME: da quello che è stato provato, sembra che se gli angoli di eulero non 
+            hanno valore preciso a zero o pi, la traiettoria viene errata, con overshoot dei 
+            joint.
+            non si capisce bene però se magari in realtà il problema è la conversione da eulero
+            a quaternione, magari è questo il problema in realtà.
+            **/
+
             /**
             Quaterniond q_test = eul2quat(phie0);
             Vector3d euler_of_q = q_test.toRotationMatrix().eulerAngles(0,1,2);
@@ -190,10 +199,10 @@ class InverseDifferential{
             */
             
             //from the initial configuration
-            q0 = eul2quat(phie0);
+            q0 = eul2quat(phie0).conjugate();
             //from the desired final configuration
-            qf = eul2quat(phief);
-            cout <<q0.coeffs()<< endl <<qf.coeffs()<<endl;
+            qf = eul2quat(phief).conjugate();
+            cout << "q0\n" << q0.coeffs().transpose() << endl << "qf\n" << qf.coeffs().transpose() << endl << endl << endl;
 
             //calculate the trajectory of robot by a function of time
             //and quaternions
@@ -414,7 +423,7 @@ class InverseDifferential{
                 ur5Direct(xe,Re,qk);
                 //cout << "Re invDiffKinematicComplete: " << endl << Re << endl;
                 //cout << Re << endl << endl;
-                Quaterniond qe = rotationMatrixToQuaternion(Re);
+                Quaterniond qe = rotationMatrixToQuaternion(Re).conjugate();
 
                 //cout << pd(t) << endl << pd(t-deltaT) << endl << endl;
                 Vector3d vd=(xd(t)-xd(t-deltaT))/deltaT;
@@ -461,7 +470,7 @@ class InverseDifferential{
                 //a possible way to avoid the singularities is to
                 //use the damped matrix
                 MatrixXd identity = MatrixXd::Identity(6,6);
-                J = ur5Jac(qk).transpose()*((ur5Jac(qk) * ur5Jac(qk).transpose() + DAMPING_FACTOR*identity).inverse());
+                J = ur5Jac(qk).transpose()*((ur5Jac(qk) * ur5Jac(qk).transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());
                 //exit(1);
             }
 
