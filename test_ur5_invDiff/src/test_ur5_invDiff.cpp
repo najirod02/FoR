@@ -73,7 +73,8 @@ int main(){
     xef*=SCALAR_FACTOR;
     qfin << 1.8484, -2.2996, 2.3856, -1.1500, 1.7082, 0.2817;
     
-    //initial and final angles are 0, 0, 0
+    //initial angles are pi/5; 0; pi/7
+    //and final angles pi/6; 0; pi/6
     Matrix3d Refin;
     ur5Direct(xef,Refin,qfin);
     
@@ -92,6 +93,7 @@ int main(){
     //cout << "xe0\n" << xe0 << endl;
     cout << "qstart\n" << qstart << endl;
     cout << "Re0\n" << Re0 << endl;
+    cout << "Refin\n" << Refin << endl;
 
     phie0 = rotationMatrixToEulerAngles(Re0);
     phief = rotationMatrixToEulerAngles(Refin);
@@ -122,7 +124,7 @@ int main(){
     //phief << M_PI/3, M_PI/2-0.1, M_PI/3; //Critical orientation
     //phief << -M_PI/2+0.1, M_PI/3, 2*M_PI/3; //Safer orientation
     //phief << M_PI/4, M_PI/4 , M_PI/4; //Safer orientation
-    
+
     q0 = eulerAnglesToQuaternion(phie0).conjugate(); 
     qf = eulerAnglesToQuaternion(phief).conjugate(); 
     // cout<<Re0<<endl<<quaternionToRotationMatrix(q0)<<endl<<Refin<<endl<<quaternionToRotationMatrix(qf)<<endl;
@@ -721,7 +723,7 @@ Matrix3d eulerAnglesToRotationMatrix(const Vector3d& euler) {
 
 // Funzione per convertire un quaternione in angoli di Eulero (ZYX)
 Vector3d quaternionToEulerAngles(const Quaterniond& quaternion) {
-    return quaternion.toRotationMatrix().eulerAngles(0, 1, 2);
+    return quaternion.normalized().toRotationMatrix().eulerAngles(0, 1, 2);
 }
 
 // Funzione per convertire angoli di Eulero in un quaternione (ZYX)
@@ -730,18 +732,20 @@ Quaterniond eulerAnglesToQuaternion(const Vector3d& euler) {
     AngleAxisd pitchAngle(euler(1), Vector3d::UnitY());
     AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
             
-    Quaterniond q =  rollAngle * pitchAngle * yawAngle ;  
+    Quaterniond q =  rollAngle * pitchAngle * yawAngle;  
+    q.normalize();
 
     return q;
 }
 
 // Funzione per convertire un quaternione in una matrice di rotazione (ZYX)
 Matrix3d quaternionToRotationMatrix(const Quaterniond& quaternion) {
-    return quaternion.toRotationMatrix();
+    return quaternion.normalized().toRotationMatrix();
 }
 
 // Funzione per convertire una matrice di rotazione in un quaternione (ZYX)
 Quaterniond rotationMatrixToQuaternion(const Matrix3d& rotationMatrix) {
-    Quaterniond quat(rotationMatrix);
-    return quat;
+    Quaterniond q(rotationMatrix);
+    q.normalize();
+    return q;
 }

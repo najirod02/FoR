@@ -160,6 +160,16 @@ class InverseDifferential{
             ros::Duration(1).sleep();
             ros::spinOnce();//IMPORTANT!!! to make sure that the initial configuration is read from the subscriber
 
+
+            //check as first if the final position is possible
+            Matrix3d Rf = eul2rotm(phief);
+            MatrixXd TH0 = ur5Inverse(xef, Rf);
+            cout << "THO" << endl << TH0 << endl << endl;
+            MatrixXd M = purgeNanColumn(TH0);
+
+            if(M.cols() == 0) {cout << "Motion not possible\n"; return;}
+
+
             //print initial q state
             VectorXd qstart(6);
             std::cout << "initial q [ ";
@@ -175,23 +185,11 @@ class InverseDifferential{
             ur5Direct(xe0, Re, qstart);
             phie0 = rotationMatrixToEulerAngles(Re);
 
-            //FIXME: with some configuration, the joints overshoot
             cout << "qstart\n" << qstart << endl;
-            cout << "Re\n" << Re << endl;
+            cout << "Re0\n" << Re << endl;
             cout << "phie0\n" << phie0.transpose() << endl;
             cout << "phief\n" << phief.transpose() << endl << endl;
             
-            //FIXME: overriding the angles, permits to execute with no errors
-            //phie0 << 3.14159, -3.14159, -3.14159 ;
-            //phief << 3.14159, -3.14159, -3.14159 ;
-
-            /*FIXME: da quello che è stato provato, sembra che se gli angoli di eulero non 
-            hanno valore preciso a zero o pi, la traiettoria viene errata, con overshoot dei 
-            joint.
-            non si capisce bene però se magari in realtà il problema è la conversione da eulero
-            a quaternione, magari è questo il problema in realtà.
-            **/
-
             /**
             Quaterniond q_test = eul2quat(phie0);
             Vector3d euler_of_q = q_test.toRotationMatrix().eulerAngles(0,1,2);
@@ -215,24 +213,6 @@ class InverseDifferential{
                 T(i)=time;
                 time +=0.1;
             } 
-
-            //cout << q0.toRotationMatrix().eulerAngles(0,1,2) << endl << endl;
-            //cout << qf.toRotationMatrix().eulerAngles(0,1,2) << endl << endl;
-
-            //cout << "DEBUGGING qo, qf\n" << "q0:\n" << q0.coeffs() << "\nqf:\n" << qf.coeffs() 
-            //<< "\nworkM\n" << workM << "\nphie0:\n" << phie0 << endl;
-
-            //Vector3d xd0 = xd(0);
-            //Matrix3d R0 = eul2rotm(phid(0));
-            //MatrixXd TH0 = ur5Inverse(xd0, R0);
-
-            //cout << "xd0" << endl;
-            //stampaVector(xd0);
-            //cout << "R0" << endl << R0 << endl;
-            //cout << "THO" << endl << TH0 << endl << endl;
-            //MatrixXd M = purgeNanColumn(TH0);
-
-            //if(M.size() == 0) {cout << "Motion not possible\n"; return;}
 
             Matrix3d Kp = 10*MatrixXd::Identity(3,3);
             Matrix3d Kq = -10*MatrixXd::Identity(3,3);
@@ -296,7 +276,7 @@ class InverseDifferential{
             for(int i=0; i<euler.size(); ++i){
                 if (-1e-10 < euler(i) && euler(i) < 1e-10) {
                     euler(i) =  M_PI * copysign(1.0, euler(i));
-                } 
+                }
             }
 
             return euler;
@@ -316,7 +296,7 @@ class InverseDifferential{
         }
 
         Vector3d quaternionToEulerAngles(const Quaterniond& quaternion) {
-            return quaternion.toRotationMatrix().eulerAngles(0, 1, 2);
+            return quaternion.normalized().toRotationMatrix().eulerAngles(0, 1, 2);
         }
 
         //function that transform the euler angles into a quaternion 
@@ -326,17 +306,19 @@ class InverseDifferential{
             AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
                     
             Quaterniond q =  rollAngle * pitchAngle * yawAngle ;  
+            q.normalize();
 
             return q;
         }
 
         Matrix3d quaternionToRotationMatrix(const Quaterniond& quaternion) {
-            return quaternion.toRotationMatrix();
+            return quaternion.normalized().toRotationMatrix();
         }
 
         Quaterniond rotationMatrixToQuaternion(const Matrix3d& rotationMatrix) {
-            Quaterniond quat(rotationMatrix);
-            return quat;
+            Quaterniond q(rotationMatrix);
+            q.normalize();
+            return q;
         }
 
         void ur5Direct(Vector3d &xe, Matrix3d &Re,const VectorXd q_des){
@@ -464,8 +446,8 @@ class InverseDifferential{
             MatrixXd J=ur5Jac(qk); 
 
             //cout<<qk<<endl<<endl<<J<<endl<< endl;
-            
-            if(abs(J.determinant()) < 1e-3){ 
+            cout << "determinant\n" << abs(J.determinant()) << endl;
+            if(abs(J.determinant()) < 1e-2){
                 cout<<"VICINO A SINGOLARITA"<<endl;
                 //a possible way to avoid the singularities is to
                 //use the damped matrix
