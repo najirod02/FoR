@@ -190,16 +190,10 @@ class InverseDifferential{
             cout << "phie0\n" << phie0.transpose() << endl;
             cout << "phief\n" << phief.transpose() << endl << endl;
             
-            /**
-            Quaterniond q_test = eul2quat(phie0);
-            Vector3d euler_of_q = q_test.toRotationMatrix().eulerAngles(0,1,2);
-            cout << "verify convertion\n" << q_test.coeffs() << endl << euler_of_q << endl << phie0 << endl;
-            */
-            
             //from the initial configuration
-            q0 = eul2quat(phie0).conjugate();
+            q0 = rotationMatrixToQuaternion(Re).conjugate();
             //from the desired final configuration
-            qf = eul2quat(phief).conjugate();
+            qf = rotationMatrixToQuaternion(Rf).conjugate();
             cout << "q0\n" << q0.coeffs().transpose() << endl << "qf\n" << qf.coeffs().transpose() << endl << endl << endl;
 
             //calculate the trajectory of robot by a function of time
@@ -277,6 +271,7 @@ class InverseDifferential{
                 if (-1e-10 < euler(i) && euler(i) < 1e-10) {
                     euler(i) =  M_PI * copysign(1.0, euler(i));
                 }
+                euler(i) = fmod(euler(i) + M_PI, 2 * M_PI) - M_PI;//angle in range -PI;+PI
             }
 
             return euler;
@@ -396,10 +391,15 @@ class InverseDifferential{
             Matrix3d Re;
             VectorXd qk(6);
             qk=TH0;
+            for (int i = 0; i < 6; ++i) {
+                //angles between -2pi;2pi
+                qk(i) = std::fmod(qk(i) + 3 * M_PI, 2 * M_PI) - M_PI;
+            }
+
             double t;
             list<VectorXd> q;
             q.push_back(qk);
-            
+
             for(int l=1;l<T.size()-1;++l){
                 t=T(l);
                 ur5Direct(xe,Re,qk);
@@ -431,7 +431,13 @@ class InverseDifferential{
 
                 VectorXd qk1(6);
                 qk1= qk + dotqk*deltaT;
+
+                for (int i = 0; i < 6; ++i) {
+                    //angles between -2pi;2pi
+                    qk1(i) = std::fmod(qk1(i) + 3 * M_PI, 2 * M_PI) - M_PI;
+                }
                 //if(l==2){cout<<qk1<<endl;}
+
                 q.push_back(qk1);
                 qk=qk1;    
             }
@@ -442,11 +448,10 @@ class InverseDifferential{
         VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi){
             //cout << "qk" << endl;
             //stampaVector(qk);
-
             MatrixXd J=ur5Jac(qk); 
 
             //cout<<qk<<endl<<endl<<J<<endl<< endl;
-            cout << "determinant\n" << abs(J.determinant()) << endl;
+            //cout << "determinant\n" << abs(J.determinant()) << endl;
             if(abs(J.determinant()) < 1e-2){
                 cout<<"VICINO A SINGOLARITA"<<endl;
                 //a possible way to avoid the singularities is to
@@ -477,10 +482,18 @@ class InverseDifferential{
 
             VectorXd dotQ(6);
             dotQ = (J.inverse())*idk;
+
+            //FIXME: done a check if joints are in -PI;PI range
+            for (int i = 0; i < 6; ++i) {
+                //angles between -2pi;2pi
+                dotQ(i) = std::fmod(dotQ(i) + 3 * M_PI, 2 * M_PI) - M_PI;
+            }
+
             //if(sp==8){cout<<qk<<endl<<endl<<J<<endl<<endl<<idk<<endl<< endl<<qp<<endl ;}  
             //sp++;
             //cout << "dotQ:" << endl;
             //stampaVector(dotQ);
+
             return dotQ;
         }
 
