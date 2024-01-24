@@ -266,24 +266,23 @@ class InverseDifferential{
         {
             Quaterniond quat(R);
             quat.normalize();
-            Vector3d euler = quat.toRotationMatrix().eulerAngles(0,1,2);
+            //Vector3d euler = quat.toRotationMatrix().eulerAngles(0,1,2);
+            Vector3d euler = quat.toRotationMatrix().eulerAngles(2,1,0);
+            /*
             for(int i=0; i<euler.size(); ++i){
-                if (-1e-10 < euler(i) && euler(i) < 1e-10) {
-                    euler(i) =  M_PI * copysign(1.0, euler(i));
-                }
-                euler(i) = fmod(euler(i) + M_PI, 2 * M_PI) - M_PI;//angle in range -PI;+PI
-            }
+                euler(i) = normalizeAngle(euler(i));
+            }*/
 
             return euler;
         }
 
         Matrix3d eul2rotm(const Vector3d& euler){
-
             AngleAxisd rollAngle(euler(0), Vector3d::UnitX());
             AngleAxisd pitchAngle(euler(1), Vector3d::UnitY());
             AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
                     
             Quaterniond q =  rollAngle * pitchAngle * yawAngle; 
+            //Quaterniond q =  yawAngle * pitchAngle * rollAngle; 
             q.normalize();
             
             Matrix3d R60 = q.matrix();
@@ -292,6 +291,7 @@ class InverseDifferential{
 
         Vector3d quaternionToEulerAngles(const Quaterniond& quaternion) {
             return quaternion.normalized().toRotationMatrix().eulerAngles(0, 1, 2);
+            //return quaternion.normalized().toRotationMatrix().eulerAngles(2, 1, 0);
         }
 
         //function that transform the euler angles into a quaternion 
@@ -300,7 +300,8 @@ class InverseDifferential{
             AngleAxisd pitchAngle(euler(1), Vector3d::UnitY());
             AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
                     
-            Quaterniond q =  rollAngle * pitchAngle * yawAngle ;  
+            Quaterniond q =  rollAngle * pitchAngle * yawAngle;  
+            //Quaterniond q =  yawAngle * pitchAngle * rollAngle; 
             q.normalize();
 
             return q;
@@ -391,10 +392,11 @@ class InverseDifferential{
             Matrix3d Re;
             VectorXd qk(6);
             qk=TH0;
+            /*
             for (int i = 0; i < 6; ++i) {
                 //angles between -2pi;2pi
-                qk(i) = std::fmod(qk(i) + 3 * M_PI, 2 * M_PI) - M_PI;
-            }
+                qk(i) = normalizeAngle(qk(i));
+            }*/
 
             double t;
             list<VectorXd> q;
@@ -483,10 +485,14 @@ class InverseDifferential{
             VectorXd dotQ(6);
             dotQ = (J.inverse())*idk;
 
-            //FIXME: done a check if joints are in -PI;PI range
+            //FIXME: the robot works until you don't define 2+ angles
+            //for example, if you define only X there are no problems but
+            // whe you define like X,Z and leaving Y = 0 there are problems
+            //possible sources of errors: quaternion/rotation matrix computation
+            
             for (int i = 0; i < 6; ++i) {
                 //angles between -2pi;2pi
-                dotQ(i) = std::fmod(dotQ(i) + 3 * M_PI, 2 * M_PI) - M_PI;
+                dotQ(i) = normalizeAngle(dotQ(i));
             }
 
             //if(sp==8){cout<<qk<<endl<<endl<<J<<endl<<endl<<idk<<endl<< endl<<qp<<endl ;}  
@@ -495,6 +501,19 @@ class InverseDifferential{
             //stampaVector(dotQ);
 
             return dotQ;
+        }
+
+        double normalizeAngle(double angle) {
+            double normalizedAngle = std::fmod(angle, 2 * M_PI);
+
+            //bring angle in range -2pi;2pi
+            if (normalizedAngle > M_PI) {
+                normalizedAngle -= 2 * M_PI;
+            } else if (normalizedAngle < -M_PI) {
+                normalizedAngle += 2 * M_PI;
+            }
+
+            return normalizedAngle;
         }
 
         Vector3d xd(double ti){
