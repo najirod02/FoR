@@ -125,8 +125,8 @@ int main(){
     //phief << -M_PI/2+0.1, M_PI/3, 2*M_PI/3; //Safer orientation
     //phief << M_PI/4, M_PI/4 , M_PI/4; //Safer orientation
 
-    q0 = eulerAnglesToQuaternion(phie0).conjugate(); 
-    qf = eulerAnglesToQuaternion(phief).conjugate(); 
+    q0 = rotationMatrixToQuaternion(Re0).conjugate(); 
+    qf = rotationMatrixToQuaternion(Refin).conjugate(); 
     // cout<<Re0<<endl<<quaternionToRotationMatrix(q0)<<endl<<Refin<<endl<<quaternionToRotationMatrix(qf)<<endl;
     cout << "q0\n" << q0.coeffs().transpose() << endl << "qf\n" << qf.coeffs().transpose() << endl << endl << endl;
     // return 0;
@@ -218,7 +218,6 @@ void ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des){
     Re = t60.block(0, 0, 3, 3);
 }
 
-
 MatrixXd ur5Jac(VectorXd Th){                                    
     MatrixXd J;
     J.resize(6,6);
@@ -297,11 +296,13 @@ list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorX
         //cout<<vd.transpose()<<endl;
 
         Quaterniond work = qd(t+deltaT)*(qd(t).conjugate());
+        //cout << "work intermediate .1\n" << qd(t+deltaT).coeffs().transpose() << endl;
+        //cout << "work intermediate .2\n" << qd(t).conjugate().coeffs().transpose() << endl;
         work.coeffs()*=(2/deltaT);
-        //cout<<work.norm()<<endl;
-        //work.normalize();
+        //cout << "work\n" << work.coeffs().transpose() << endl;
+
         Vector3d omegad= work.vec();            
-        //cout<<omegad.transpose()<<endl;
+        //cout << "omegad\n" << omegad.transpose() << endl;
         Vector3d xd_t=xd(t);
         Quaterniond qd_t=qd(t);
         VectorXd dotqk(6);
@@ -319,11 +320,14 @@ list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorX
 }
 
 VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi){
-        
+
     Quaterniond qp = qd*qe.conjugate();
-    
     Vector3d eo=qp.vec();
-    //cout<<eo.transpose()<<endl;                                             
+
+    cout << "xd\n" << xd << "\nqd\n" << qd.coeffs().transpose() << endl
+    << "qe\n" << qe.coeffs().transpose() << endl
+    << "eo\n" << eo << endl;
+
     Vector3d part1= vd+Kp*(xd-xe);
     Vector3d part2= omegad+Kphi*eo;
     VectorXd idk(6);
@@ -701,9 +705,9 @@ Vector3d rotationMatrixToEulerAngles(const Matrix3d& rotationMatrix) {
     Quaterniond quat(rotationMatrix);
     quat.normalize();
     Vector3d euler = quat.toRotationMatrix().eulerAngles(0,1,2);
-    for(int i=0; i<euler.size(); ++i){
-        if(almostZero(euler(i))) euler(i) = 0;
-    }
+
+    //cout << "Rot2Euler\n\nQuaternion:\n" << quat.coeffs().transpose() << "\nRotation matrix:\n" <<
+    //quat.toRotationMatrix() << "\nEuler angles:\n" << euler << "\n\n"; 
 
     return euler;
 }
@@ -718,6 +722,10 @@ Matrix3d eulerAnglesToRotationMatrix(const Vector3d& euler) {
     q.normalize();
     
     Matrix3d R60 = q.matrix();
+
+    //cout << "Euler2Rot\n\nQuaternion:\n" << q.coeffs().transpose() << "\nRotation matrix:\n" <<
+    //R60 << "\nEuler angles:\n" << euler << "\n\n";
+
     return R60;
 }
 

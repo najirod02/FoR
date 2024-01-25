@@ -19,14 +19,14 @@ using namespace std;
  * the singularities should be controlled by the fact we are using
  * quaternions
  * 
- * all the joint have a 360° mobility and the gripper has an (symetric) opening of 100mm
+ * all the joint have a 360° mobility and the gripper has an (symetric) opening of 90mm
  * 45mm for each side
  * 
  * example of call:
  * joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"}
  
  * NOTE
- * the gripper is about millimeters and NOT angles (max opening = 100mm)
+ * the gripper is about millimeters and NOT angles (max opening = 90mm)
  * gripper_sim True -> specify joint values + gripper (2 values, left + right)
  * rosrun ur5_invDiff ur5_invDiff 0.4 -0.35 0.53 0 0 0 45 45
  * 
@@ -34,14 +34,18 @@ using namespace std;
  * 
  * to grap the object simply indicate the opening of -0.1 -0.1
  * after that, you can move the object where you want
+ * 
+ * NOTE 
+ * there are some safer orientation and critical orientation, in general:
+ * - set atm most only 1 angle as pi/2
+ * - use 0 or pi/4 as angle, pi/4 corresponds to a SAFER orientation
+ * - DON'T use pi/2 and or pi/3, these are CRITICAL orientation
  */
 class InverseDifferential{
 
     const double Tf=10.0;
     const double Tb=0;
-    const double deltaT=0.1;
-
-    int sp=0;
+    const double deltaT=0.001;//the smaller, the more precise but more computation
 
     //the topic to send the new joints configurations
     const std::string TOPIC = std::string("/ur5/joint_group_pos_controller/command");
@@ -50,9 +54,11 @@ class InverseDifferential{
 
     const static int JOINT_NAMES = 6;
     const double SCALAR_FACTOR = 10.0;
-    const double DAMPING_FACTOR = 1e-6;
-    const int RATE = 1000;
+    const double DAMPING_FACTOR = 1e-6;//used in the damped pseudoinverse matrix
+    const double ALMOST_ZERO = 1e-7;//threshold when a values is recognized as zero
+    const int RATE = 1000;//default: 1k Hz
 
+    //global values
     Quaterniond q0,qf;
     Vector3d xe0,xef,phie0,phief;
     Vector2d gripper;
@@ -62,7 +68,6 @@ class InverseDifferential{
     ros::Publisher joint_pub;
     ros::Subscriber sub;
     std::string joint_names [JOINT_NAMES];
-
 
     char **argv;
     int argc;
@@ -161,14 +166,11 @@ class InverseDifferential{
             ros::spinOnce();//IMPORTANT!!! to make sure that the initial configuration is read from the subscriber
 
 
-            //check as first if the final position is possible
+            //check first if the final position is possible
             Matrix3d Rf = eul2rotm(phief);
             MatrixXd TH0 = ur5Inverse(xef, Rf);
-            cout << "THO" << endl << TH0 << endl << endl;
             MatrixXd M = purgeNanColumn(TH0);
-
             if(M.cols() == 0) {cout << "Motion not possible\n"; return;}
-
 
             //print initial q state
             VectorXd qstart(6);
@@ -181,22 +183,26 @@ class InverseDifferential{
 
             //get initial pose of the robot knowing the initial joint states
             Matrix3d Re;
-            //cout << "q\n" << q << endl;
             ur5Direct(xe0, Re, qstart);
+            //FIXME: con x negativo, ed angoli tutti 0, la posizione finale raggiunta
+            //non ha angoli 0 ma una certa rotazione rispetto a z
             phie0 = rotationMatrixToEulerAngles(Re);
-
-            cout << "qstart\n" << qstart << endl;
-            cout << "Re0\n" << Re << endl;
-            cout << "phie0\n" << phie0.transpose() << endl;
-            cout << "phief\n" << phief.transpose() << endl << endl;
-            
+         
+            //calculate quaternions
             //from the initial configuration
             q0 = rotationMatrixToQuaternion(Re).conjugate();
             //from the desired final configuration
             qf = rotationMatrixToQuaternion(Rf).conjugate();
-            cout << "q0\n" << q0.coeffs().transpose() << endl << "qf\n" << qf.coeffs().transpose() << endl << endl << endl;
 
-            //calculate the trajectory of robot by a function of time
+            //cout << "qstart\n" << qstart << endl;
+            cout << "Re0\n" << Re << endl;
+            cout << "phie0\n" << phie0.transpose() << endl;
+            cout << "Rf\n" << Rf << endl;
+            cout << "phief\n" << phief.transpose() << endl << endl;
+            cout << "q0\n" << q0.conjugate().coeffs().transpose() << endl << "qf\n" << qf.conjugate().coeffs().transpose() << endl << endl << endl;
+            
+
+            //calculate the trajectory of the robot by a function of time
             //and quaternions
             VectorXd T;
             double L=(Tf-Tb)/deltaT;
@@ -240,14 +246,14 @@ class InverseDifferential{
 
             //printing list l solutions
             //to print the Th values of matlab
-            ///*
+            /*
             ros::spinOnce();
             k = 1;
             for(auto i:l){
                 VectorXd v1(6);
                 v1 = i;
                 cout<<k<<":      ";
-                stampaVector(v1);
+                printVector(v1);
                 k++;
             }
             //*/
@@ -262,49 +268,50 @@ class InverseDifferential{
             std::cout << "]" << std::endl;
         }
 
+        /**
+         * function that gives the euler angles XYZ from the rotation
+         * matrix
+         */
         Vector3d rotationMatrixToEulerAngles(const Matrix3d& R)
         {
             Quaterniond quat(R);
             quat.normalize();
-            //Vector3d euler = quat.toRotationMatrix().eulerAngles(0,1,2);
-            Vector3d euler = quat.toRotationMatrix().eulerAngles(2,1,0);
-            /*
-            for(int i=0; i<euler.size(); ++i){
-                euler(i) = normalizeAngle(euler(i));
-            }*/
-
-            return euler;
+            return quat.toRotationMatrix().eulerAngles(0,1,2);
         }
 
+        /**
+         * function that convert the euler angles XYZ in a quaternion
+         */
         Matrix3d eul2rotm(const Vector3d& euler){
             AngleAxisd rollAngle(euler(0), Vector3d::UnitX());
             AngleAxisd pitchAngle(euler(1), Vector3d::UnitY());
             AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
                     
             Quaterniond q =  rollAngle * pitchAngle * yawAngle; 
-            //Quaterniond q =  yawAngle * pitchAngle * rollAngle; 
             q.normalize();
             
-            Matrix3d R60 = q.matrix();
-            return R60;
+            return q.matrix();
         }
 
+        /**
+         * function that returns the euler angles given a quaternion 
+         * using the XYZ convention
+         */
         Vector3d quaternionToEulerAngles(const Quaterniond& quaternion) {
             return quaternion.normalized().toRotationMatrix().eulerAngles(0, 1, 2);
-            //return quaternion.normalized().toRotationMatrix().eulerAngles(2, 1, 0);
         }
 
-        //function that transform the euler angles into a quaternion 
+        /**
+         * function that convert the euler angles in a quaternion
+         * using the XYZ convention
+         */
         Quaterniond eul2quat(const Vector3d& euler){
             AngleAxisd rollAngle(euler(0), Vector3d::UnitX());
             AngleAxisd pitchAngle(euler(1), Vector3d::UnitY());
             AngleAxisd yawAngle(euler(2), Vector3d::UnitZ());
                     
             Quaterniond q =  rollAngle * pitchAngle * yawAngle;  
-            //Quaterniond q =  yawAngle * pitchAngle * rollAngle; 
-            q.normalize();
-
-            return q;
+            return q.normalized();
         }
 
         Matrix3d quaternionToRotationMatrix(const Quaterniond& quaternion) {
@@ -313,10 +320,13 @@ class InverseDifferential{
 
         Quaterniond rotationMatrixToQuaternion(const Matrix3d& rotationMatrix) {
             Quaterniond q(rotationMatrix);
-            q.normalize();
-            return q;
+            return q.normalized();
         }
 
+        /**
+         * given the joints values, return the end effector position
+         * and the rotation matrix
+         */
         void ur5Direct(Vector3d &xe, Matrix3d &Re,const VectorXd q_des){
             Matrix4d t10 = getRotationMatrix(q_des(0), ALPHA(0), D(0), A(0));
             Matrix4d t21 = getRotationMatrix(q_des(1), ALPHA(1), D(1), A(1));
@@ -331,6 +341,10 @@ class InverseDifferential{
             Re = t60.block(0, 0, 3, 3);
         }
 
+        /**
+         * given the joints values, returns the computet jacobian
+         * for the ur5
+         */
         MatrixXd ur5Jac(VectorXd Th){
             MatrixXd J;
             J.resize(6,6);
@@ -387,59 +401,41 @@ class InverseDifferential{
             return J; 
         }
 
+        /**
+         * first of the two functions that generates the trajectory for the robot
+         */
         list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorXd T,Matrix3d Kp,Matrix3d Kphi){
             Vector3d xe;
             Matrix3d Re;
             VectorXd qk(6);
             qk=TH0;
-            /*
-            for (int i = 0; i < 6; ++i) {
-                //angles between -2pi;2pi
-                qk(i) = normalizeAngle(qk(i));
-            }*/
 
             double t;
             list<VectorXd> q;
             q.push_back(qk);
 
             for(int l=1;l<T.size()-1;++l){
+                //calculate the next state
                 t=T(l);
                 ur5Direct(xe,Re,qk);
-                //cout << "Re invDiffKinematicComplete: " << endl << Re << endl;
-                //cout << Re << endl << endl;
+                
                 Quaterniond qe = rotationMatrixToQuaternion(Re).conjugate();
-
-                //cout << pd(t) << endl << pd(t-deltaT) << endl << endl;
                 Vector3d vd=(xd(t)-xd(t-deltaT))/deltaT;
-                //cout << "vd:\n";
-                //stampaVector(vd);
 
                 Quaterniond work = qd(t+deltaT)*(qd(t).conjugate());
                 work.coeffs()*=(2/deltaT);
-                //cout << "work:\n" << work.coeffs() << endl << endl;
-
+                
                 Vector3d omegad= work.vec();    
-                //cout << "omegad:\n";
-                //stampaVector(omegad);
-
+    
                 Vector3d xd_t=xd(t);
                 Quaterniond qd_t=qd(t);
                 VectorXd dotqk(6);
-                //if(l>-1 ){cout<<t<<" vd     "<<xd_t<<endl<<endl<<"om      "<<qd_t.coeffs()<<endl<<endl;}
-                
-                //cout << l << endl;
+ 
                 dotqk = invDiffKinematicControlCompleteQuaternion(qk,xe,xd_t,vd,omegad,qe,qd_t,Kp, Kphi); 
-                //if(l>-1){cout<<dotqk<<endl<<endl;}
 
+                //add the new configuration to the solution
                 VectorXd qk1(6);
                 qk1= qk + dotqk*deltaT;
-
-                for (int i = 0; i < 6; ++i) {
-                    //angles between -2pi;2pi
-                    qk1(i) = std::fmod(qk1(i) + 3 * M_PI, 2 * M_PI) - M_PI;
-                }
-                //if(l==2){cout<<qk1<<endl;}
-
                 q.push_back(qk1);
                 qk=qk1;    
             }
@@ -447,28 +443,20 @@ class InverseDifferential{
             return q;
         }
 
+        /**
+         * second of the two functions that generates the trajectory for the robot
+         */
         VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi){
-            //cout << "qk" << endl;
-            //stampaVector(qk);
             MatrixXd J=ur5Jac(qk); 
-
-            //cout<<qk<<endl<<endl<<J<<endl<< endl;
-            //cout << "determinant\n" << abs(J.determinant()) << endl;
-            if(abs(J.determinant()) < 1e-2){
-                cout<<"VICINO A SINGOLARITA"<<endl;
-                //a possible way to avoid the singularities is to
-                //use the damped matrix
-                MatrixXd identity = MatrixXd::Identity(6,6);
-                J = ur5Jac(qk).transpose()*((ur5Jac(qk) * ur5Jac(qk).transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());
-                //exit(1);
-            }
-
             Quaterniond qp = qd*qe.conjugate();
-            //cout << "qp: " << endl << qp.coeffs() << endl;
-            //cout << "qd: " << endl << qd.coeffs() << endl;
-            //cout << "qe: " << endl << qe.coeffs() << endl;
             Vector3d eo=qp.vec();
-            //cout << "eo: " << endl << eo << endl;
+
+            /*
+            cout << "xd\n" << xd << "\nqd\n" << qd.coeffs().transpose() << endl
+            << "qe\n" << qe.coeffs().transpose() << endl
+            << "eo\n" << eo << endl;
+            */
+
             Vector3d part1= vd+Kp*(xd-xe);
             Vector3d part2= omegad+Kphi*eo;
             VectorXd idk(6);
@@ -478,71 +466,55 @@ class InverseDifferential{
                 idk(i+3)=part2(i);
             }
             
-            //cout<<sp<<"     "<<xe<<endl;
-            //stampaVector(xe);
-            //stampaVector(part2);
-
+            //calculate the new joint configuration
             VectorXd dotQ(6);
-            dotQ = (J.inverse())*idk;
-
-            //FIXME: the robot works until you don't define 2+ angles
-            //for example, if you define only X there are no problems but
-            // whe you define like X,Z and leaving Y = 0 there are problems
-            //possible sources of errors: quaternion/rotation matrix computation
-            
-            for (int i = 0; i < 6; ++i) {
-                //angles between -2pi;2pi
-                dotQ(i) = normalizeAngle(dotQ(i));
+            if(abs(J.determinant()) < 1e-2){
+                cout<<"NEAR SINGULARITY"<<endl;
+                //a possible way to avoid the singularities is to
+                //use the damped pseudoinverse matrix
+                MatrixXd identity = MatrixXd::Identity(6,6);
+                J = ur5Jac(qk).transpose()*((ur5Jac(qk) * ur5Jac(qk).transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());
+                dotQ = J*idk;
+            } else {
+                dotQ = (J.inverse())*idk;
             }
-
-            //if(sp==8){cout<<qk<<endl<<endl<<J<<endl<<endl<<idk<<endl<< endl<<qp<<endl ;}  
-            //sp++;
-            //cout << "dotQ:" << endl;
-            //stampaVector(dotQ);
 
             return dotQ;
         }
 
-        double normalizeAngle(double angle) {
-            double normalizedAngle = std::fmod(angle, 2 * M_PI);
-
-            //bring angle in range -2pi;2pi
-            if (normalizedAngle > M_PI) {
-                normalizedAngle -= 2 * M_PI;
-            } else if (normalizedAngle < -M_PI) {
-                normalizedAngle += 2 * M_PI;
-            }
-
-            return normalizedAngle;
-        }
-
+        /**
+         * position as function of time
+         */
         Vector3d xd(double ti){
             Vector3d xd;
             double t = ti/Tf;
             if (t > 1){
                 xd = xef;
-            }
-                
+            }             
             else{
                 xd = t*xef + (1-t)*xe0;
             }
             return xd;
         }
 
+        /**
+         * angles as function of time
+         */
         Vector3d phid(double ti){
             Vector3d phid;
             double t = ti/Tf;
             if (t > 1){
                 phid = phief;
-            }
-                
+            }           
             else{
                 phid = t*phief + (1-t)*phie0;
             }
             return phid;
         }
 
-        //Derived quaternion
+        /**
+         * implement the slerp method
+         */
         Quaterniond qd( double ti){
             double t=ti/Tf;
             Quaterniond qd;
@@ -555,6 +527,10 @@ class InverseDifferential{
             return qd;
         }
 
+        /**
+         * given position and orientation, returns the possible
+         * joints' configurations
+         */
         MatrixXd ur5Inverse(Vector3d &p60, Matrix3d &Re){
             MatrixXd Th(6, 8);
 
@@ -562,8 +538,7 @@ class InverseDifferential{
             hmTransf.translation() = p60;
             hmTransf.linear() = Re;
             Matrix4d T60 = hmTransf.matrix();
-            //std::cout << "T60\n" << T60 << std::endl;
-            
+
             //finding th1
             Vector4d data(0, 0, -D(5), 1);
             Vector4d p50 = (T60 * data);
@@ -798,6 +773,10 @@ class InverseDifferential{
             return Th;
         }
 
+        /**
+         * compute the homogeneous matrix for the computation of the direct
+         * kinematic
+         */
         Matrix4d getRotationMatrix(double th, double alpha, double d, double a){
             Matrix4d rotation;
             rotation << cos(th), -sin(th)*cos(alpha), sin(th)*sin(alpha), a*cos(th),
@@ -808,6 +787,10 @@ class InverseDifferential{
             return rotation;                                       
         }
 
+        /**
+         * remove all the NON possible solutions from the inverse problem
+         * checking if each columns contains at least a NaN value
+         */
         MatrixXd purgeNanColumn(MatrixXd matrix){
             MatrixXd newMatrix(6, 0);
             int nColumns = 0;
@@ -825,22 +808,28 @@ class InverseDifferential{
             return newMatrix;
         }
 
-        void stampaVector(VectorXd v){
+        /**
+         * print the values of a generic vector
+         */
+        void printVector(VectorXd v){
             for (int cb=0;cb<v.size();cb++){
                 cout <<v(cb)<<"  ";
             }
             cout<<endl<<endl;
         }
 
+        /**
+         * function that checks if a value is close to zero
+         */
         bool almostZero(double value){
-            return abs(value)<1e-7;
+            return abs(value)<ALMOST_ZERO;
         };
 
 };
 
 int main(int argc, char **argv){
     if(argc < 9) {
-        std::cout << "Insert exactly [x, y, z] for position, [alpha, beta, gamma] for rotation and [left, right] for the opening of the gripper" << std::endl;
+        std::cout << "Insert exactly [x, y, z] for position, [alpha, beta, gamma] for rotation in rads and [left, right] for the opening of the gripper" << std::endl;
         return 1;
     }
 

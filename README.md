@@ -125,6 +125,11 @@ Remember to always [Build and Update](#how-to-create-and-build-the-packages) the
 
   The configuration shown on the image is with angles 0, 0, 0 (XYZ). So, for example, a rotation of pi/2 about Y will make point the end effector in the same direction of X axis of the base_link_inertia.
 
+- There are some **safer configurations** for the **euler angles**?
+
+  Yes, if you want to stay in a safe condition use ONLY **0** and **PI/4** as angles and 
+  DO NOT use PI/2 and 2PI, these two brings you in a critical configuration.
+
 - What value should have the **scale factor**?
   
   It depends on how you want to develop the project.
@@ -135,7 +140,7 @@ Remember to always [Build and Update](#how-to-create-and-build-the-packages) the
 
   And so on...
 
-- How can we grap the objects?
+- How can we grab the objects?
 
   Knowing the X, Y of the object we need to specify the Z and the opening of the gripper.
   
