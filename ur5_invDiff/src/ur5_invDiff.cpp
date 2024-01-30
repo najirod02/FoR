@@ -22,12 +22,13 @@ using namespace std;
  * all the joint have a 360° mobility and the gripper has an (symetric) opening of 90mm
  * 45mm for each side
  * 
- * example of call:
  * joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"}
- 
+ * 
  * NOTE
  * the gripper is about millimeters and NOT angles (max opening = 90mm)
  * gripper_sim True -> specify joint values + gripper (2 values, left + right)
+ * 
+ * example of call:
  * rosrun ur5_invDiff ur5_invDiff 0.4 -0.35 0.53 0 0 0 45 45
  * 
  * this command should aproach the block X1-Y1-Z1 from tavolo_blocks.world
@@ -37,7 +38,7 @@ using namespace std;
  * 
  * NOTE 
  * there are some safer orientation and critical orientation, in general:
- * - set atm most only 1 angle as pi/2
+ * - set at most only 1 angle as pi/2
  * - use 0 or pi/4 as angle, pi/4 corresponds to a SAFER orientation
  * - DON'T use pi/2 and or pi/3, these are CRITICAL orientation
  */
@@ -45,7 +46,7 @@ class InverseDifferential{
 
     const double Tf=10.0;
     const double Tb=0;
-    const double deltaT=0.001;//the smaller, the more precise but more computation
+    const double deltaT=0.01;//the smaller, the more precise but more computation
 
     //the topic to send the new joints configurations
     const std::string TOPIC = std::string("/ur5/joint_group_pos_controller/command");
@@ -54,9 +55,23 @@ class InverseDifferential{
 
     const static int JOINT_NAMES = 6;
     const double SCALAR_FACTOR = 10.0;
-    const double DAMPING_FACTOR = 1e-6;//used in the damped pseudoinverse matrix
+    const double DAMPING_FACTOR = 1e-8;//used in the damped pseudoinverse matrix
     const double ALMOST_ZERO = 1e-7;//threshold when a values is recognized as zero
-    const int RATE = 1000;//default: 1k Hz
+    const int RATE = 1000;//default: 1 kHz
+
+    //range for working area
+    const double MAX_X = 0.5;
+    const double MIN_X = -0.5;
+    const double MAX_Y = 0.12;
+    const double MIN_Y = -0.45;
+    const double MAX_Z = 0.733;
+    const double MIN_Z = 0.15;
+
+    //transformation from world to robot frame
+    const double WORLD_TO_ROBOT_X = -0.5;
+    const double WORLD_TO_ROBOT_Y = 0.35;
+    const double WORLD_TO_ROBOT_Z = 1.75;
+    Matrix4d WORLD_TO_ROBOT;
 
     //global values
     Quaterniond q0,qf;
@@ -72,6 +87,11 @@ class InverseDifferential{
     char **argv;
     int argc;
     bool gripper_sim;
+
+    /**
+     * TODO:
+     * crea altri file world con posizione diversa dei blocchi
+     */
 
     public:
 
@@ -97,13 +117,21 @@ class InverseDifferential{
             ALPHA << M_PI/2, 0, 0, M_PI/2, -M_PI/2, 0;
             A *= SCALAR_FACTOR;
             D *= SCALAR_FACTOR;
+            
+            WORLD_TO_ROBOT << 1, 0, 0, WORLD_TO_ROBOT_X,
+                              0, -1, 0, WORLD_TO_ROBOT_Y,
+                              0, 0, -1, WORLD_TO_ROBOT_Z,
+                              0, 0, 0, 1;
 
             //read the position and euler values of final pose
             xef << std::stod(argv_[1]), std::stod(argv_[2]), std::stod(argv_[3]);
             phief << std::stod(argv_[4]), std::stod(argv_[5]), std::stod(argv_[6]);
             gripper << std::stod(argv_[7]), std::stod(argv_[8]);
             
+            //convert in robot frame and check if position is inside working area
+            xef = worldToRobotFrame(xef);
             xef *= SCALAR_FACTOR;
+            if(!checkWorkArea(xef)){cout << "The position is not inside the working area\n"; return;}
 
             //start talker
             talker();    
@@ -173,6 +201,8 @@ class InverseDifferential{
             if(M.cols() == 0) {cout << "Motion not possible\n"; return;}
 
             //print initial q state
+
+
             VectorXd qstart(6);
             std::cout << "initial q [ ";
             for(int i=0; i<q.size(); ++i){
@@ -266,6 +296,56 @@ class InverseDifferential{
                 std::cout << q[i] << " ";
             }
             std::cout << "]" << std::endl;
+            
+            if(checkWorkArea(q)){cout << "The robot's configuration is inside the working area\n\n";}
+            else {cout << "The robot's configuration is NOT inside the working area\n";}
+        }
+
+        /**
+         * function that controls if the end effector is inside the working area
+         */
+        bool checkWorkArea(const Vector3d& position){
+            //approximation to 3 decimal to exlude errors
+            double x = floor((position[0]/SCALAR_FACTOR)*100)/100;
+            double y = floor((position[1]/SCALAR_FACTOR)*100)/100;
+            double z = floor((position[2]/SCALAR_FACTOR)*100)/100;
+
+            if(MIN_X <= x && x <= MAX_X){
+                if(MIN_Y <= y && y <= MAX_Y){
+                    if(MIN_Z <= z && z <= MAX_Z){
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /**
+         * function that controls if the given joint configuration, the end
+         * effector in inside the working area
+         */
+        bool checkWorkArea(const VectorXd& joints){
+            //use direct kinematic to find end effector position
+            Vector3d xe;
+            Matrix3d Re;
+
+            ur5Direct(xe, Re, joints);
+
+            return checkWorkArea(xe);
+        }
+
+        /**
+         * given the position of a block in the world frame, return the position of the same
+         * block in the robot frame.
+         * 
+         * The coordinates has the same unit of gazebo (in meters)
+         */
+        Vector3d worldToRobotFrame(const Vector3d& coords){
+            Vector4d position;
+            position << coords[0], coords[1], coords[2], 1;
+
+            return (WORLD_TO_ROBOT*position).block(0,0,1,3);
         }
 
         /**
@@ -488,7 +568,7 @@ class InverseDifferential{
         Vector3d xd(double ti){
             Vector3d xd;
             double t = ti/Tf;
-            if (t > 1){
+            if (t >= 1){
                 xd = xef;
             }             
             else{
@@ -503,7 +583,7 @@ class InverseDifferential{
         Vector3d phid(double ti){
             Vector3d phid;
             double t = ti/Tf;
-            if (t > 1){
+            if (t >= 1){
                 phid = phief;
             }           
             else{
@@ -518,7 +598,7 @@ class InverseDifferential{
         Quaterniond qd( double ti){
             double t=ti/Tf;
             Quaterniond qd;
-            if(t>1){
+            if(t >= 1){
                 qd=qf;
             }
             else{
@@ -829,7 +909,7 @@ class InverseDifferential{
 
 int main(int argc, char **argv){
     if(argc < 9) {
-        std::cout << "Insert exactly [x, y, z] for position, [alpha, beta, gamma] for rotation in rads and [left, right] for the opening of the gripper" << std::endl;
+        std::cout << "Insert [x, y, z] for position in world frame, [alpha, beta, gamma] for rotation in rads and [left, right] for the opening of the gripper" << std::endl;
         return 1;
     }
 
