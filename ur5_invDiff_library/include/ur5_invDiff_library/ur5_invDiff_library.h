@@ -1,5 +1,5 @@
-#ifndef INVDIFF_H
-#define INVDIFF_H
+#ifndef UR5_INVDIFF_LIBRARY_H
+#define UR5_INVDIFF_LIBRARY_H
 
 #include "ros/ros.h"
 #include "std_msgs/Float64MultiArray.h"
@@ -15,9 +15,8 @@
 using namespace std;
 using namespace Eigen;
 
-class InverseDifferential
+class InverseDifferential   
 {
-
     const double Tf=10.0;
     const double Tb=0;
     const double deltaT=0.1;//the smaller, the more precise but more computation
@@ -31,7 +30,7 @@ class InverseDifferential
     int intermediate_point_trajectory=0;
 
     const static int JOINT_NAMES = 6;
-    const double SCALAR_FACTOR = 10.0;
+    const double SCALAR_FACTOR = 1.0;
     const double DAMPING_FACTOR = 1e-8;//used in the damped pseudoinverse matrix
     const double ALMOST_ZERO = 1e-7;//threshold when a values is recognized as zero
     const int RATE = 1000;//default: 1 kHz
@@ -68,7 +67,6 @@ class InverseDifferential
     public:
         InverseDifferential(int argc_, char** argv_);
 
-    private: 
         //ROS functions
         void send_des_jstate(ros::Publisher joint_pub, bool gripper_sim, Eigen::VectorXd q_des);
 

@@ -12,7 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   sensor_msgs
-  #invDiff
+  ur5_invDiff_library
 )
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
@@ -109,9 +109,14 @@ generate_messages(
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
   INCLUDE_DIRS include
-  #LIBRARIES invDiff
-  CATKIN_DEPENDS roscpp rospy std_msgs
+  LIBRARIES ${PROJECT_NAME}
+  CATKIN_DEPENDS roscpp rospy std_msgs ur5_invDiff_library
   DEPENDS system_lib
+)
+
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
 )
 
 ###########
@@ -120,15 +125,13 @@ catkin_package(
 
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-)
+#include_directories(
+#  include
+#  ${catkin_INCLUDE_DIRS}
+#)
 
 ## Declare a C++ library
-#add_library(
-#  invDiff invDiff.cpp
-#)
+#add_library(invDiff src/invDiff.cpp)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -213,10 +216,8 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-#add_executable(ur5_invDiff src/ur5_invDiff.cpp)
-#target_link_libraries(invDiff ${catkin_LIBRARIES} Eigen3::Eigen)
-
-
+add_executable(ur5_invDiff src/ur5_invDiff.cpp)
+target_link_libraries(ur5_invDiff ${catkin_LIBRARIES} Eigen3::Eigen ur5_invDiff_library)
 
 
 add_executable(test_ur5_invDiff src/test_ur5_invDiff.cpp)

@@ -1,4 +1,4 @@
-#include "invDiff.h"
+#include "ur5_invDiff_library/ur5_invDiff_library.h"
 
 int main(int argc, char **argv){
     if(argc < 9) {

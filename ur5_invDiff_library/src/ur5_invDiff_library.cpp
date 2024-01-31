@@ -1,4 +1,4 @@
-#include "invDiff.h"
+#include "ur5_invDiff_library/ur5_invDiff_library.h"
 
 
 InverseDifferential::InverseDifferential(int argc_, char** argv_) :
@@ -55,7 +55,7 @@ joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1
  * topic.
  * note that the angles must be of RADIANT type !!!
  */
-void send_des_jstate(ros::Publisher joint_pub, bool gripper_sim, VectorXd q_des){
+void InverseDifferential::send_des_jstate(ros::Publisher joint_pub, bool gripper_sim, VectorXd q_des){
     std_msgs::Float64MultiArray msg;
 
     if(gripper_sim){
@@ -79,7 +79,7 @@ void send_des_jstate(ros::Publisher joint_pub, bool gripper_sim, VectorXd q_des)
  * need to check the correspondence of q index and position index
  * to make shure that we are reading the correct joint (names)
  */
-void receive_jstate(const sensor_msgs::JointState::ConstPtr& msg){
+void InverseDifferential::receive_jstate(const sensor_msgs::JointState::ConstPtr& msg){
     for(int msg_idx=0; msg_idx<msg->name.size(); ++msg_idx){
         for(int joint_idx=0; joint_idx<JOINT_NAMES; ++joint_idx){
             if(joint_names[joint_idx].compare(msg->name[msg_idx]) == 0){
@@ -93,7 +93,7 @@ void receive_jstate(const sensor_msgs::JointState::ConstPtr& msg){
  * main function,
  * initialize nodes, reading and sending the new joint states
  */
-void talker(){
+void InverseDifferential::talker(){
     //AnonymousName adds a random suffix to the node name
     ros::init(argc, argv, "ur5_invDiff", ros::init_options::AnonymousName);
     ros::NodeHandle n;
@@ -217,7 +217,7 @@ void talker(){
  * function that convert the euler angles in a quaternion
  * using the XYZ convention
  */
-Quaterniond eulerAnglesToQuaternion(const Vector3d& euler) {
+Quaterniond InverseDifferential::eulerAnglesToQuaternion(const Vector3d& euler) {
     Quaterniond quaternion;
 
     quaternion=eulerAnglesToRotationMatrix(euler);
@@ -229,7 +229,7 @@ Quaterniond eulerAnglesToQuaternion(const Vector3d& euler) {
  * function that gives the euler angles XYZ from the rotation
  * matrix
  */
-Vector3d rotationMatrixToEulerAngles(const Matrix3d& rotationMatrix) {
+Vector3d InverseDifferential::rotationMatrixToEulerAngles(const Matrix3d& rotationMatrix) {
     Vector3d euler;
 
     euler=rotationMatrix.eulerAngles(0,1,2);
@@ -243,7 +243,7 @@ Vector3d rotationMatrixToEulerAngles(const Matrix3d& rotationMatrix) {
 /**
  * function that convert the euler angles XYZ in a quaternion
  */
-Matrix3d eulerAnglesToRotationMatrix(const Vector3d& euler) {
+Matrix3d InverseDifferential::eulerAnglesToRotationMatrix(const Vector3d& euler) {
     Matrix3d rotationMatrix;
 
     // Rotazione attorno all'asse x (Roll)
@@ -278,7 +278,7 @@ Matrix3d eulerAnglesToRotationMatrix(const Vector3d& euler) {
     return rotationMatrix;
 }
 
-Quaterniond rotationMatrixToQuaternion(const Matrix3d& rotationMatrix) {
+Quaterniond InverseDifferential::rotationMatrixToQuaternion(const Matrix3d& rotationMatrix) {
     Quaterniond quaternion;
 
     quaternion=rotationMatrix;
@@ -291,7 +291,7 @@ Quaterniond rotationMatrixToQuaternion(const Matrix3d& rotationMatrix) {
  * 
  * The coordinates and orientation has the same unit of gazebo (in meters and radiants)
  */
-void worldToRobotFrame(Vector3d& coords, Vector3d& euler){
+void InverseDifferential::worldToRobotFrame(Vector3d& coords, Vector3d& euler){
     Vector4d position;
     position << coords[0], coords[1], coords[2], 1;
 
@@ -314,7 +314,7 @@ void worldToRobotFrame(Vector3d& coords, Vector3d& euler){
  * given the joints values, return the end effector position
  * and the rotation matrix
  */
-void ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des){
+void InverseDifferential::ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des){
     
     Matrix4d t10 = getRotationMatrix(q_des(0), ALPHA(0), D(0), A(0));
     Matrix4d t21 = getRotationMatrix(q_des(1), ALPHA(1), D(1), A(1));
@@ -333,7 +333,7 @@ void ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des){
  * given the joints values, returns the computet jacobian
  * for the ur5
  */
-MatrixXd ur5Jac(VectorXd v){
+MatrixXd InverseDifferential::ur5Jac(VectorXd v){
     VectorXd q_des(6);
 
     q_des<<v(0), v(1) ,  v(2), v(3) ,v(4),v(5) ;
@@ -383,7 +383,7 @@ MatrixXd ur5Jac(VectorXd v){
 /**
  * first of the two functions that generates the trajectory for the robot
  */
-list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorXd T,Matrix3d Kp,Matrix3d Kphi){
+list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorXd T,Matrix3d Kp,Matrix3d Kphi){
     Vector3d xe;
     Matrix3d Re;
     VectorXd qk(6);
@@ -429,10 +429,8 @@ list<VectorXd> invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorX
 /**
  * second of the two functions that generates the trajectory for the robot
  */
-VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi){
+VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi){
     MatrixXd J=ur5Jac(qk);     
-    
-    
     
     Quaterniond qp = qd*qe.conjugate();
     
@@ -468,7 +466,7 @@ VectorXd invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vecto
  * position as function of time using 
  * interpolation over 4 points
  */
-Vector3d xd(double ti){
+Vector3d InverseDifferential::xd(double ti){
    Vector3d xd;
    //test if the polynomial interpolation is better than the linear one
     if(intermediate_point_trajectory==0){
@@ -718,7 +716,7 @@ Vector3d xd(double ti){
 /**
  * implement the slerp method
  */
-Quaterniond qd( double ti){
+Quaterniond InverseDifferential::qd( double ti){
 double t=ti/Tf;
 Quaterniond qd;
 if(t>1){
@@ -735,7 +733,7 @@ return qd;
  * given position and orientation, returns the possible
  * joints' configurations
  */
-MatrixXd ur5Inverse(Vector3d &p60, Matrix3d &Re){
+MatrixXd InverseDifferential::ur5Inverse(Vector3d &p60, Matrix3d &Re){
     MatrixXd Th(6, 8);
     
     Affine3d hmTransf = Affine3d::Identity();
@@ -1003,7 +1001,7 @@ MatrixXd ur5Inverse(Vector3d &p60, Matrix3d &Re){
  * compute the homogeneous matrix for the computation of the direct
  * kinematic
  */
-Matrix4d getRotationMatrix(double th, double alpha, double d, double a){
+Matrix4d InverseDifferential::getRotationMatrix(double th, double alpha, double d, double a){
     Matrix4d rotation;
     rotation << cos(th), -sin(th)*cos(alpha), sin(th)*sin(alpha), a*cos(th),
         sin(th), cos(th)*cos(alpha), -cos(th)*sin(alpha), a*sin(th),
@@ -1021,7 +1019,7 @@ Matrix4d getRotationMatrix(double th, double alpha, double d, double a){
  * remove all the NON possible solutions from the inverse problem
  * checking if each columns contains at least a NaN value
  */
-MatrixXd purgeNanColumn(MatrixXd matrix){
+MatrixXd InverseDifferential::purgeNanColumn(MatrixXd matrix){
     MatrixXd newMatrix(6, 0);
     int nColumns = 0;
 
@@ -1044,7 +1042,7 @@ MatrixXd purgeNanColumn(MatrixXd matrix){
 /**
  * function that controls if the end effector is inside the working area
  */
-bool checkWorkArea(const Vector3d& position){
+bool InverseDifferential::checkWorkArea(const Vector3d& position){
     //approximation to 3 decimal to exlude errors
     double x = floor((position[0]/SCALAR_FACTOR)*100)/100;
     double y = floor((position[1]/SCALAR_FACTOR)*100)/100;
@@ -1065,7 +1063,7 @@ bool checkWorkArea(const Vector3d& position){
  * function that controls if the given joint configuration, the end
  * effector in inside the working area
  */
-bool checkWorkArea(const VectorXd& joints){
+bool InverseDifferential::checkWorkArea(const VectorXd& joints){
     //use direct kinematic to find end effector position
     Vector3d xe;
     Matrix3d Re;
@@ -1078,7 +1076,7 @@ bool checkWorkArea(const VectorXd& joints){
 /**
  * print the values of a generic vector
  */
-void printVector(VectorXd v){
+void InverseDifferential::printVector(VectorXd v){
     for (int cb=0;cb<v.size();cb++){
         cout <<v(cb)<<"  ";
     }
@@ -1088,7 +1086,7 @@ void printVector(VectorXd v){
 /**
  * function that checks if a value is close to zero
  */
-bool almostZero(double value){
+bool InverseDifferential::almostZero(double value){
     return abs(value)<ALMOST_ZERO;
 };
 
@@ -1096,7 +1094,7 @@ bool almostZero(double value){
  * function that checks if the angle is close to zero.
  * if so, set the value to zero
  */
-void angleCorrection(double & angle){
+void InverseDifferential::angleCorrection(double & angle){
     if(almostZero(angle*pow(10,9))){
         angle=0;
     }
