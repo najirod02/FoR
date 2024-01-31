@@ -40,7 +40,7 @@ class InverseDifferential
     const double SCALAR_FACTOR = 1.0;
     const double DAMPING_FACTOR = 1e-6;//used in the damped pseudoinverse matrix
     const double ALMOST_ZERO = 1e-7;//threshold when a values is recognized as zero
-    const int RATE = 1000;//default: 1 kHz
+    const int RATE = 100;//default: 1 kHz
 
     //range for working area    
     //in the robot frame
@@ -125,6 +125,8 @@ class InverseDifferential
         bool almostZero(double value);
 
         void angleCorrection(double & angle);
+
+        void fixWirstJointLimits(Eigen::VectorXd& joints);
 };
 
 #endif

@@ -136,12 +136,12 @@ void InverseDifferential::talker(){
     qf = rotationMatrixToQuaternion(Rf);
 
     //for debugging
-    //cout << "qstart\n" << qstart << endl;
-    //cout << "Re0\n" << Re << endl;
-    //cout << "phie0\n" << phie0.transpose() << endl;
-    //cout << "Rf\n" << Rf << endl;
-    //cout << "phief\n" << phief.transpose() << endl << endl;
-    //cout << "q0\n" << q0.conjugate().coeffs().transpose() << endl << "qf\n" << qf.conjugate().coeffs().transpose() << endl << endl << endl;
+    cout << "qstart\n" << qstart << endl;
+    cout << "Re0\n" << Re << endl;
+    cout << "phie0\n" << phie0.transpose() << endl;
+    cout << "Rf\n" << Rf << endl;
+    cout << "phief\n" << phief.transpose() << endl << endl;
+    cout << "q0\n" << q0.coeffs().transpose() << endl << "qf\n" << qf.coeffs().transpose() << endl << endl << endl;
     
 
     //calculate the trajectory of the robot by a function of time
@@ -178,7 +178,7 @@ void InverseDifferential::talker(){
     cout << "Starting motion\n";
     int i=0;
     while(ros::ok()){
-        //cout << endl << v1.col(i) << endl;
+        //cout << endl << i+1 << " " << v1.col(i) << endl;
         send_des_jstate(joint_pub, gripper_sim, v1.col(i++));
         ros::spinOnce();
         loop_rate.sleep();
@@ -186,10 +186,14 @@ void InverseDifferential::talker(){
         if(i >= (Tf - Tb) / deltaT) break;
     }
 
+    VectorXd lastConfiguration = v1.col(((Tf - Tb) / deltaT) - 1);
+    fixWirstJointLimits(lastConfiguration);
+    send_des_jstate(joint_pub, gripper_sim, lastConfiguration);
+    ros::spinOnce();
+
     //printing list l solutions
     //to print the Th values of matlab
     /*
-    ros::spinOnce();
     k = 1;
     for(auto i:l){
         VectorXd v1(6);
@@ -211,6 +215,12 @@ void InverseDifferential::talker(){
 
     if(checkWorkArea(q)){cout << "The robot's configuration is inside the working area\n\n";}
     else {cout << "The robot's configuration is NOT inside the working area\n";}
+
+    Vector3d xef1;
+    ur5Direct(xef1,Rf,v1.col(99));
+    Vector3d phief1=rotationMatrixToEulerAngles(Rf);
+    cout<<"actual position  "<<xef1.transpose()<<" nominal "<<xef.transpose()<<endl;
+    cout<<"actual orientation "<<phief1.transpose()<<" nominal "<<phief.transpose()<<endl;
 }
 
 
@@ -248,22 +258,33 @@ Vector3d InverseDifferential::rotationMatrixToEulerAngles(const Matrix3d& rotati
 Matrix3d InverseDifferential::eulerAnglesToRotationMatrix(const Vector3d& euler) {
     Matrix3d rotationMatrix;
 
+    /*
+    double roll = (abs(euler[0] - M_PI) < 1e-6) ? 0.0 : euler[0];
+    double pitch = (abs(euler[1] - M_PI) < 1e-6) ? 0.0 : euler[1];
+    double yaw = (abs(euler[2] - M_PI) < 1e-6) ? 0.0 : euler[2];
+    */
+    
+    double roll = euler[0];
+    double pitch = euler[1];
+    double yaw = euler[2];
+    
+
     //rotation about x axis (Roll)
     Matrix3d rotationX;
     rotationX << 1, 0, 0,
-                  0, cos(euler[0]), -sin(euler[0]),
-                  0, sin(euler[0]), cos(euler[0]);
+                  0, cos(roll), -sin(roll),
+                  0, sin(roll), cos(roll);
 
     //rotation about y axis (Pithc)
     Matrix3d rotationY;
-    rotationY << cos(euler[1]), 0, sin(euler[1]),
+    rotationY << cos(pitch), 0, sin(pitch),
                   0, 1, 0,
-                  -sin(euler[1]), 0, cos(euler[1]);
+                  -sin(pitch), 0, cos(pitch);
 
     //rotation about z axis (Yaw)
     Matrix3d rotationZ;
-    rotationZ << cos(euler[2]), -sin(euler[2]), 0,
-                  sin(euler[2]), cos(euler[2]), 0,
+    rotationZ << cos(yaw), -sin(yaw), 0,
+                  sin(yaw), cos(yaw), 0,
                   0, 0, 1;
 
     rotationMatrix = rotationX * rotationY * rotationZ;
@@ -299,8 +320,7 @@ void InverseDifferential::worldToRobotFrame(Vector3d& coords, Vector3d& euler){
     coords = (WORLD_TO_ROBOT*position).block(0,0,1,3);
     
     Eigen::Matrix3d R_matrix_base = eulerAnglesToRotationMatrix(euler);
-
-    Eigen::Matrix3d R_matrix_second = WORLD_TO_ROBOT.block<3, 3>(0, 0) * R_matrix_base;
+     Eigen::Matrix3d R_matrix_second = WORLD_TO_ROBOT.block<3, 3>(0, 0) * R_matrix_base;
 
     Eigen::Vector3d rpy_angles_second_frame = rotationMatrixToEulerAngles(R_matrix_second);
     euler(0) = rpy_angles_second_frame(0) - M_PI;
@@ -336,7 +356,7 @@ void InverseDifferential::ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des){
 MatrixXd InverseDifferential::ur5Jac(VectorXd v){
     VectorXd q_des(6);
 
-    q_des<<v(0), v(1) ,  v(2), v(3) ,v(4),v(5) ;
+    q_des << v(0), v(1),  v(2), v(3), v(4), v(5);
 
     Matrix4d t10 = getRotationMatrix(q_des(0), ALPHA(0), D(0), A(0));
     Matrix4d t21 = getRotationMatrix(q_des(1), ALPHA(1), D(1), A(1));
@@ -399,8 +419,8 @@ list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion
 
         Vector3d vd=(xd(t)-xd(t-deltaT))/deltaT;
 
-        Quaterniond work=  (qd(t+deltaT)*qd(t).conjugate());          
-        work.coeffs()*=(2/ deltaT );                              
+        Quaterniond work = (qd(t+deltaT)*qd(t).conjugate());          
+        work.coeffs()*= (2/deltaT);                              
         
         Vector3d omegad= work.vec();                                 
        
@@ -408,9 +428,10 @@ list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion
         Quaterniond qd_t=qd(t);
         VectorXd dotqk(6);
         
-        dotqk=  invDiffKinematicControlCompleteQuaternion(qk,xe,xd_t,vd,omegad,qe,qd_t,Kp, Kphi); 
+        dotqk = invDiffKinematicControlCompleteQuaternion(qk,xe,xd_t,vd,omegad,qe,qd_t,Kp, Kphi); 
         VectorXd qk1(6);
         qk1= qk + dotqk*deltaT;
+
         q.push_back(qk1);
         qk=qk1;    
     }
@@ -454,7 +475,8 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
 /**
  * position as function of time using 
  * interpolation over 4 points
- */
+ *
+ * FIXME: interpolation is not smooth
 Vector3d InverseDifferential::xd(double ti){
    Vector3d xd;
 
@@ -688,6 +710,18 @@ Vector3d InverseDifferential::xd(double ti){
     }
     return xd;
 }
+*/
+Vector3d InverseDifferential::xd(double ti){
+    Vector3d xd;
+    double t = ti/Tf;
+    if (t >= 1){
+        xd = xef;
+    }             
+    else{
+        xd = t*xef + (1-t)*xe0;
+    }
+    return xd;
+}
 
 /**
  * implement the slerp method
@@ -695,11 +729,10 @@ Vector3d InverseDifferential::xd(double ti){
 Quaterniond InverseDifferential::qd( double ti){
     double t=ti/Tf;
     Quaterniond qd;
-    if(t>1){
+    if(t>=1){
         qd=qf;
     }
-    else{
-        
+    else{    
         qd=q0.slerp(t,qf);            
     }
     return qd;
@@ -1063,4 +1096,14 @@ void InverseDifferential::angleCorrection(double & angle){
     if(almostZero(angle*pow(10,9))){
         angle=0;
     }
+}
+
+/**
+ * the wirst's joint can reach its limits, given the desired configuration
+ * bring back in the valid range the joint value -2pi;2pi
+ */
+void InverseDifferential::fixWirstJointLimits(Eigen::VectorXd& joints){
+    for(int i=3; i<=5; ++i){
+        joints[i] = fmod(joints[i] + M_PI, 2 * M_PI) - M_PI;
+    }        
 }

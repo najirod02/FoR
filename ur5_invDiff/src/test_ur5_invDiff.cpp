@@ -209,8 +209,7 @@ class InverseDifferential{
             //get initial pose of the robot knowing the initial joint states
             Matrix3d Re;
             ur5Direct(xe0, Re, qstart);
-            //FIXME: con x negativo, ed angoli tutti 0, la posizione finale raggiunta
-            //non ha angoli 0 ma una certa rotazione rispetto a z
+            
             phie0 = rotationMatrixToEulerAngles(Re);
          
             //calculate quaternions
