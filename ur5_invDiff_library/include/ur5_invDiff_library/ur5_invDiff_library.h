@@ -1,3 +1,10 @@
+/**
+ * the file contains all the functions
+ * that are used in order to compute the trajectory of the robot
+ * and also make some checks in order to avoid singularities and go outside
+ * the designed workin area.
+ */
+
 #ifndef UR5_INVDIFF_LIBRARY_H
 #define UR5_INVDIFF_LIBRARY_H
 
@@ -31,11 +38,12 @@ class InverseDifferential
 
     const static int JOINT_NAMES = 6;
     const double SCALAR_FACTOR = 1.0;
-    const double DAMPING_FACTOR = 1e-8;//used in the damped pseudoinverse matrix
+    const double DAMPING_FACTOR = 1e-6;//used in the damped pseudoinverse matrix
     const double ALMOST_ZERO = 1e-7;//threshold when a values is recognized as zero
     const int RATE = 1000;//default: 1 kHz
 
     //range for working area    
+    //in the robot frame
     const double MAX_X = 0.5;
     const double MIN_X = -0.5;
     const double MAX_Y = 0.12;
@@ -75,7 +83,6 @@ class InverseDifferential
         void talker();
 
 
-
         //Convertion functions
         Eigen::Vector3d rotationMatrixToEulerAngles(const Eigen::Matrix3d& rotationMatrix);
 
@@ -86,7 +93,6 @@ class InverseDifferential
         Eigen::Quaterniond rotationMatrixToQuaternion(const Eigen::Matrix3d& rotationMatrix);
 
         void worldToRobotFrame(Eigen::Vector3d& coords, Eigen::Vector3d& euler);
-
 
 
         //Inverse differential functions
@@ -109,7 +115,6 @@ class InverseDifferential
         Eigen::MatrixXd purgeNanColumn(Eigen::MatrixXd matrix);
 
 
-
         //Other functions
         bool checkWorkArea(const Eigen::Vector3d& position);
 
@@ -120,7 +125,6 @@ class InverseDifferential
         bool almostZero(double value);
 
         void angleCorrection(double & angle);
-
 };
 
 #endif

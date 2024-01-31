@@ -1,3 +1,8 @@
+/**
+ * the file contains the implementation of all functions
+ * defined in the ur5_invDiff_library.h file
+ */
+
 #include "ur5_invDiff_library/ur5_invDiff_library.h"
 
 
@@ -53,7 +58,6 @@ joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1
 /**
  * a simple functions that cretes the message and publish it through the 
  * topic.
- * note that the angles must be of RADIANT type !!!
  */
 void InverseDifferential::send_des_jstate(ros::Publisher joint_pub, bool gripper_sim, VectorXd q_des){
     std_msgs::Float64MultiArray msg;
@@ -112,8 +116,6 @@ void InverseDifferential::talker(){
     if(M.cols() == 0) {cout << "Motion not possible\n"; return;}
 
     //print initial q state
-
-
     VectorXd qstart(6);
     std::cout << "initial q [ ";
     for(int i=0; i<q.size(); ++i){
@@ -133,12 +135,13 @@ void InverseDifferential::talker(){
     //from the desired final configuration
     qf = rotationMatrixToQuaternion(Rf);
 
+    //for debugging
     //cout << "qstart\n" << qstart << endl;
-    cout << "Re0\n" << Re << endl;
-    cout << "phie0\n" << phie0.transpose() << endl;
-    cout << "Rf\n" << Rf << endl;
-    cout << "phief\n" << phief.transpose() << endl << endl;
-    cout << "q0\n" << q0.conjugate().coeffs().transpose() << endl << "qf\n" << qf.conjugate().coeffs().transpose() << endl << endl << endl;
+    //cout << "Re0\n" << Re << endl;
+    //cout << "phie0\n" << phie0.transpose() << endl;
+    //cout << "Rf\n" << Rf << endl;
+    //cout << "phief\n" << phief.transpose() << endl << endl;
+    //cout << "q0\n" << q0.conjugate().coeffs().transpose() << endl << "qf\n" << qf.conjugate().coeffs().transpose() << endl << endl << endl;
     
 
     //calculate the trajectory of the robot by a function of time
@@ -205,11 +208,10 @@ void InverseDifferential::talker(){
         std::cout << q[i] << " ";
     }
     std::cout << "]" << std::endl;
-    
+
     if(checkWorkArea(q)){cout << "The robot's configuration is inside the working area\n\n";}
     else {cout << "The robot's configuration is NOT inside the working area\n";}
 }
-
 
 
 //Convertion functions
@@ -246,25 +248,24 @@ Vector3d InverseDifferential::rotationMatrixToEulerAngles(const Matrix3d& rotati
 Matrix3d InverseDifferential::eulerAnglesToRotationMatrix(const Vector3d& euler) {
     Matrix3d rotationMatrix;
 
-    // Rotazione attorno all'asse x (Roll)
+    //rotation about x axis (Roll)
     Matrix3d rotationX;
     rotationX << 1, 0, 0,
                   0, cos(euler[0]), -sin(euler[0]),
                   0, sin(euler[0]), cos(euler[0]);
 
-    // Rotazione attorno all'asse y (Pitch)
+    //rotation about y axis (Pithc)
     Matrix3d rotationY;
     rotationY << cos(euler[1]), 0, sin(euler[1]),
                   0, 1, 0,
                   -sin(euler[1]), 0, cos(euler[1]);
 
-    // Rotazione attorno all'asse z (Yaw)
+    //rotation about z axis (Yaw)
     Matrix3d rotationZ;
     rotationZ << cos(euler[2]), -sin(euler[2]), 0,
                   sin(euler[2]), cos(euler[2]), 0,
                   0, 0, 1;
 
-    // Combinazione delle rotazioni
     rotationMatrix = rotationX * rotationY * rotationZ;
     
     //Delete precision errors
@@ -274,13 +275,11 @@ Matrix3d InverseDifferential::eulerAnglesToRotationMatrix(const Vector3d& euler)
         }
     }
 
-
     return rotationMatrix;
 }
 
 Quaterniond InverseDifferential::rotationMatrixToQuaternion(const Matrix3d& rotationMatrix) {
     Quaterniond quaternion;
-
     quaternion=rotationMatrix;
     return quaternion;
 }
@@ -290,6 +289,8 @@ Quaterniond InverseDifferential::rotationMatrixToQuaternion(const Matrix3d& rota
  * block in the robot frame.
  * 
  * The coordinates and orientation has the same unit of gazebo (in meters and radiants)
+ * 
+ * Useful when specifing the block pose w.r.t world frame
  */
 void InverseDifferential::worldToRobotFrame(Vector3d& coords, Vector3d& euler){
     Vector4d position;
@@ -306,7 +307,6 @@ void InverseDifferential::worldToRobotFrame(Vector3d& coords, Vector3d& euler){
     euler(1) = rpy_angles_second_frame(1);
     euler(2) = rpy_angles_second_frame(2);
 }
-
 
 
 //Inverse differential functions
@@ -376,8 +376,7 @@ MatrixXd InverseDifferential::ur5Jac(VectorXd v){
     J.col(4)<<(z4.cross(P-p4)), z4;
     J.col(5)<<(z5.cross(P-p5)), z5;
     
-    return J;
-    
+    return J;  
 }
 
 /**
@@ -392,34 +391,26 @@ list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion
     list <VectorXd> q;
     q.push_back(qk);
     
-    for(int l=1;l<T.size()-1;l++){                                     //STRANE DIMENSIONI DEI VETTORI IN MATLAB 
+    for(int l=1;l<T.size()-1;l++){
         t=T(l);
         ur5Direct(xe,Re,qk);
         
-        //xe[2]> xef[2]; --> metti errore a 2
         Quaterniond qe=rotationMatrixToQuaternion(Re);
-        // qe=qe.conjugate();  
-        //cout<<Re<<endl<<endl;                                         
 
         Vector3d vd=(xd(t)-xd(t-deltaT))/deltaT;
-        //cout<<vd.transpose()<<endl;
 
         Quaterniond work=  (qd(t+deltaT)*qd(t).conjugate());          
         work.coeffs()*=(2/ deltaT );                              
         
-      
         Vector3d omegad= work.vec();                                 
        
         Vector3d xd_t=xd(t);
         Quaterniond qd_t=qd(t);
         VectorXd dotqk(6);
-        //if(l>-1 ){cout<<t<<" vd     "<<xd_t<<endl<<endl<<"om      "<<qd_t<<endl<<endl;}
         
         dotqk=  invDiffKinematicControlCompleteQuaternion(qk,xe,xd_t,vd,omegad,qe,qd_t,Kp, Kphi); 
-        //if(l>-1){cout<<dotqk<<endl<<endl;}
         VectorXd qk1(6);
         qk1= qk + dotqk*deltaT;
-        //if(l==2){cout<<qk1<<endl;}
         q.push_back(qk1);
         qk=qk1;    
     }
@@ -434,10 +425,9 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
     
     Quaterniond qp = qd*qe.conjugate();
     
-    
     Vector3d eo=qp.vec();
                                                 
-    Vector3d part1= vd+Kp*(xd-xe);                               //!!!!!!!!!!!!!!!IMPORTANTE CAMBIARE NOME ALLE VARIABILI!!!!!!!!!!!!!
+    Vector3d part1= vd+Kp*(xd-xe);
     Vector3d part2= omegad+Kphi*eo;
     VectorXd idk(6);
     for(int i=0; i<3;i++){
@@ -448,7 +438,7 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
 
     VectorXd dotQ(6);
     if(abs(J.determinant())<1e-3){ 
-        cout<<"VICINO A SINGOLARITA"<<endl;   
+        cout<<"NEAR SINGULARITY"<<endl;   
                                                                     
         MatrixXd identity = MatrixXd::Identity(6,6);
         J = J.transpose()*((J * J.transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());     //damped pseudo inverse
@@ -456,7 +446,6 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
     }
     else{
         dotQ = J.partialPivLu().solve(idk);
-        //dotQ=J.inverse()*idk;
     }
     
     return dotQ;
@@ -468,20 +457,16 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
  */
 Vector3d InverseDifferential::xd(double ti){
    Vector3d xd;
-   //test if the polynomial interpolation is better than the linear one
+
     if(intermediate_point_trajectory==0){
 
-        if(iteration==0){
-            
-            
+        if(iteration==0){     
+            //starting from homing position    
             Vector3d xef_high;
             
-            
-
             xef_high=xef;
             xef_high[2]-=0.2;
-
-            
+   
             double distance_p0_p1=(xe0-xef_high).norm();
             double distance_p1_p2=(xef_high-xef).norm();
             double total_distance=distance_p0_p1+distance_p1_p2;
@@ -529,11 +514,8 @@ Vector3d InverseDifferential::xd(double ti){
 
             }
 
-        //    return xd;
-
         }else{
-            //Vector3d xd;
-            
+            //starting from general position after moving successfully a block
             Vector3d xe0_high,xef_high;
             
             xe0_high=xe0;
@@ -608,14 +590,10 @@ Vector3d InverseDifferential::xd(double ti){
                     xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
                 }
             }
-            //return xd;
-
         }
     }
-                //INTERMEDIATE POINT IN CASE OF ERROR IN MOTION
+    //INTERMEDIATE POINT IN CASE OF ERROR IN MOTION
     else{
-        //Vector3d xd;
-            
         Vector3d xe0_high,xef_high;
             
         xe0_high=xe0;
@@ -706,8 +684,6 @@ Vector3d InverseDifferential::xd(double ti){
             for(int cont=0;cont<3;cont++){
                 xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
         }
-        //return xd;
-
         }
     }
     return xd;
@@ -717,16 +693,16 @@ Vector3d InverseDifferential::xd(double ti){
  * implement the slerp method
  */
 Quaterniond InverseDifferential::qd( double ti){
-double t=ti/Tf;
-Quaterniond qd;
-if(t>1){
-    qd=qf;
-}
-else{
-    
-    qd=q0.slerp(t,qf);            
-}
-return qd;
+    double t=ti/Tf;
+    Quaterniond qd;
+    if(t>1){
+        qd=qf;
+    }
+    else{
+        
+        qd=q0.slerp(t,qf);            
+    }
+    return qd;
 }
   
 /**
@@ -900,10 +876,6 @@ MatrixXd InverseDifferential::ur5Inverse(Vector3d &p60, Matrix3d &Re){
         th3_2_2_2 = -acos(C);
     }
 
-    
-
-
-
     double th2_1_1_1, th2_1_1_2, th2_1_2_1, th2_1_2_2,
     th2_2_1_1, th2_2_1_2, th2_2_2_1, th2_2_2_2;
 
@@ -915,11 +887,7 @@ MatrixXd InverseDifferential::ur5Inverse(Vector3d &p60, Matrix3d &Re){
     th2_2_1_2 = -atan2(P31_2_1(1), -P31_2_1(0))+asin((A(2)*sin(th3_2_1_2))/P31_2_1.norm());
     th2_2_2_1 = -atan2(P31_2_2(1), -P31_2_2(0))+asin((A(2)*sin(th3_2_2_1))/P31_2_2.norm());
     th2_2_2_2 = -atan2(P31_2_2(1), -P31_2_2(0))+asin((A(2)*sin(th3_2_2_2))/P31_2_2.norm());
-
-    
-
-            
-                
+             
     Matrix4d T21 = getRotationMatrix(th2_1_1_1, ALPHA(1), D(1), A(1));
     Matrix4d T32 = getRotationMatrix(th3_1_1_1, ALPHA(2), D(2), A(2));
     Matrix4d T41 = T41_1_1;
@@ -984,8 +952,6 @@ MatrixXd InverseDifferential::ur5Inverse(Vector3d &p60, Matrix3d &Re){
     xx = T43(0, 0);
     double th4_2_2_2 = atan2(xy, xx);
     
-    
-
     Th.resize(6, 8);
     Th.row(0) << th1_1, th1_1, th1_1, th1_1, th1_2, th1_2, th1_2, th1_2;
     Th.row(1) << th2_1_1_1, th2_1_1_2, th2_1_2_1, th2_1_2_2, th2_2_2_1, th2_2_1_2, th2_2_2_1, th2_2_2_2;
@@ -1037,13 +1003,12 @@ MatrixXd InverseDifferential::purgeNanColumn(MatrixXd matrix){
 }
 
 
-
 //Other functions
 /**
  * function that controls if the end effector is inside the working area
  */
 bool InverseDifferential::checkWorkArea(const Vector3d& position){
-    //approximation to 3 decimal to exlude errors
+    //approximation to 3 decimal to exlude precision errors
     double x = floor((position[0]/SCALAR_FACTOR)*100)/100;
     double y = floor((position[1]/SCALAR_FACTOR)*100)/100;
     double z = floor((position[2]/SCALAR_FACTOR)*100)/100;

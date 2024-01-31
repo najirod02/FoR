@@ -1,3 +1,7 @@
+/**
+ * the main function that starts the motion node
+ */
+
 #include "ur5_invDiff_library/ur5_invDiff_library.h"
 
 int main(int argc, char **argv){
