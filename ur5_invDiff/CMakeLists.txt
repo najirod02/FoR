@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   sensor_msgs
+  #invDiff
 )
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
@@ -108,7 +109,7 @@ generate_messages(
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES ur5_sine_trajectory
+  #LIBRARIES invDiff
   CATKIN_DEPENDS roscpp rospy std_msgs
   DEPENDS system_lib
 )
@@ -120,14 +121,14 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+  include
   ${catkin_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
-# add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/ur5_invDiff.cpp
-# )
+#add_library(
+#  invDiff invDiff.cpp
+#)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -176,11 +177,14 @@ include_directories(
 
 ## Mark libraries for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_libraries.html
-# install(TARGETS ${PROJECT_NAME}
-#   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#   RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
-# )
+#install(TARGETS invDiff ${PROJECT_NAME}
+#ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+#LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+#RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+#)
+
+#install(DIRECTORY include/${PROJECT_NAME}/
+#        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION})
 
 ## Mark cpp header files for installation
 # install(DIRECTORY include/${PROJECT_NAME}/
@@ -209,5 +213,11 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-add_executable(ur5_invDiff src/ur5_invDiff.cpp)
-target_link_libraries(ur5_invDiff ${catkin_LIBRARIES} Eigen3::Eigen)
+#add_executable(ur5_invDiff src/ur5_invDiff.cpp)
+#target_link_libraries(invDiff ${catkin_LIBRARIES} Eigen3::Eigen)
+
+
+
+
+add_executable(test_ur5_invDiff src/test_ur5_invDiff.cpp)
+target_link_libraries(test_ur5_invDiff ${catkin_LIBRARIES} Eigen3::Eigen)
