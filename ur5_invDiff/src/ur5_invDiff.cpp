@@ -88,11 +88,6 @@ class InverseDifferential{
     int argc;
     bool gripper_sim;
 
-    /**
-     * TODO:
-     * crea altri file world con posizione diversa dei blocchi
-     */
-
     public:
 
         InverseDifferential(int argc_, char **argv_) :
@@ -129,7 +124,7 @@ class InverseDifferential{
             gripper << std::stod(argv_[7]), std::stod(argv_[8]);
             
             //convert in robot frame and check if position is inside working area
-            xef = worldToRobotFrame(xef);
+            worldToRobotFrame(xef, phief);
             xef *= SCALAR_FACTOR;
             if(!checkWorkArea(xef)){cout << "The position is not inside the working area\n"; return;}
 
@@ -336,16 +331,25 @@ class InverseDifferential{
         }
 
         /**
-         * given the position of a block in the world frame, return the position of the same
+         * given the pose of a block in the world frame, return the pose of the same
          * block in the robot frame.
          * 
-         * The coordinates has the same unit of gazebo (in meters)
+         * The coordinates and orientation has the same unit of gazebo (in meters and radiants)
          */
-        Vector3d worldToRobotFrame(const Vector3d& coords){
+        void worldToRobotFrame(Vector3d& coords, Vector3d& euler){
             Vector4d position;
             position << coords[0], coords[1], coords[2], 1;
 
-            return (WORLD_TO_ROBOT*position).block(0,0,1,3);
+            coords = (WORLD_TO_ROBOT*position).block(0,0,1,3);
+            
+            Eigen::Matrix3d R_matrix_base = eul2rotm(euler);
+
+            Eigen::Matrix3d R_matrix_second = WORLD_TO_ROBOT.block<3, 3>(0, 0) * R_matrix_base;
+
+            Eigen::Vector3d rpy_angles_second_frame = rotationMatrixToEulerAngles(R_matrix_second);
+            euler(0) = rpy_angles_second_frame(0) - M_PI;
+            euler(1) = rpy_angles_second_frame(1);
+            euler(2) = rpy_angles_second_frame(2);
         }
 
         /**
