@@ -6,7 +6,7 @@
 #include "ur5_invDiff_library/ur5_invDiff_library.h"
 
 
-InverseDifferential::InverseDifferential(int argc_, char** argv_) :
+InverseDifferential::InverseDifferential(int argc_, char** argv_, double* xef_, double* phief_, double gripper_left, double gripper_right) :
 joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"}
 {
     //just copy the argc and argv of main to initialize the nodes in talker function
@@ -40,13 +40,16 @@ joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1
                         0, 0, 0, 1;
 
     //read the position and euler values of final pose
-    xef << std::stod(argv_[1]), std::stod(argv_[2]), std::stod(argv_[3]);
-    phief << std::stod(argv_[4]), std::stod(argv_[5]), std::stod(argv_[6]);
-    gripper << std::stod(argv_[7]), std::stod(argv_[8]);
+    xef << xef_[0], xef_[1], xef_[2];
+    phief << phief_[0], phief_[1], phief_[2];
+    gripper << gripper_left, gripper_right;
     
     //convert in robot frame and check if position is inside working area
     worldToRobotFrame(xef, phief);
     xef *= SCALAR_FACTOR;
+
+    cout << "request received\n" << xef.transpose() << endl << phief.transpose() << endl;
+
     if(!checkWorkArea(xef)){cout << "The position is not inside the working area\n"; return;}
 
     //start talker
@@ -55,34 +58,19 @@ joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1
 
 
 //ROS functions
-/**
- * a simple functions that cretes the message and publish it through the 
- * topic.
- */
-void InverseDifferential::send_des_jstate(ros::Publisher joint_pub, bool gripper_sim, VectorXd q_des){
+void InverseDifferential::send_des_jstate(ros::Publisher joint_pub, VectorXd q_des){
     std_msgs::Float64MultiArray msg;
 
-    if(gripper_sim){
-        q_des.conservativeResize(q_des.size() + 2);
-        q_des(q_des.size()-2) = gripper[0];
-        q_des(q_des.size()-1) = gripper[1];
+    q_des.conservativeResize(q_des.size() + 2);
+    q_des(q_des.size()-2) = gripper[0];
+    q_des(q_des.size()-1) = gripper[1];
 
-        std::vector<double> v3(&q_des[0], q_des.data()+q_des.cols()*q_des.rows());
-        msg.data = v3;
-    }
-    else {
-        std::vector<double> v3(&q_des[0], q_des.data()+q_des.cols()*q_des.rows());
-        msg.data = v3;
-    }
+    std::vector<double> v3(&q_des[0], q_des.data()+q_des.cols()*q_des.rows());
+    msg.data = v3;
 
     joint_pub.publish(msg);
 }
 
-/**
- * receive the joints states from the topic
- * need to check the correspondence of q index and position index
- * to make shure that we are reading the correct joint (names)
- */
 void InverseDifferential::receive_jstate(const sensor_msgs::JointState::ConstPtr& msg){
     for(int msg_idx=0; msg_idx<msg->name.size(); ++msg_idx){
         for(int joint_idx=0; joint_idx<JOINT_NAMES; ++joint_idx){
@@ -93,10 +81,6 @@ void InverseDifferential::receive_jstate(const sensor_msgs::JointState::ConstPtr
     }
 }
 
-/**
- * main function,
- * initialize nodes, reading and sending the new joint states
- */
 void InverseDifferential::talker(){
     //AnonymousName adds a random suffix to the node name
     ros::init(argc, argv, "ur5_invDiff", ros::init_options::AnonymousName);
@@ -107,7 +91,6 @@ void InverseDifferential::talker(){
 
     ros::Duration(1).sleep();
     ros::spinOnce();//IMPORTANT!!! to make sure that the initial configuration is read from the subscriber
-
 
     //check first if the final position is possible
     Matrix3d Rf = eulerAnglesToRotationMatrix(phief);
@@ -136,12 +119,12 @@ void InverseDifferential::talker(){
     qf = rotationMatrixToQuaternion(Rf);
 
     //for debugging
-    cout << "qstart\n" << qstart << endl;
-    cout << "Re0\n" << Re << endl;
-    cout << "phie0\n" << phie0.transpose() << endl;
-    cout << "Rf\n" << Rf << endl;
-    cout << "phief\n" << phief.transpose() << endl << endl;
-    cout << "q0\n" << q0.coeffs().transpose() << endl << "qf\n" << qf.coeffs().transpose() << endl << endl << endl;
+    //cout << "qstart\n" << qstart << endl;
+    //cout << "Re0\n" << Re << endl;
+    //cout << "phie0\n" << phie0.transpose() << endl;
+    //cout << "Rf\n" << Rf << endl;
+    //cout << "phief\n" << phief.transpose() << endl << endl;
+    //cout << "q0\n" << q0.coeffs().transpose() << endl << "qf\n" << qf.coeffs().transpose() << endl << endl << endl;
     
 
     //calculate the trajectory of the robot by a function of time
@@ -177,18 +160,27 @@ void InverseDifferential::talker(){
     //send values to joints
     cout << "Starting motion\n";
     int i=0;
+
+    //first send the final configuration with the gripper values only
+    VectorXd firstConfiguration = v1.col(0);
+    send_des_jstate(joint_pub, firstConfiguration);
+    ros::Duration(1).sleep();
+
+    //send all the calculated configurations
     while(ros::ok()){
         //cout << endl << i+1 << " " << v1.col(i) << endl;
-        send_des_jstate(joint_pub, gripper_sim, v1.col(i++));
+        send_des_jstate(joint_pub, v1.col(i++));
         ros::spinOnce();
         loop_rate.sleep();
 
         if(i >= (Tf - Tb) / deltaT) break;
     }
 
+    //to make sure that we reached precisley the final configuration
+    //and the wirst hasn't reached its joints' limits
     VectorXd lastConfiguration = v1.col(((Tf - Tb) / deltaT) - 1);
     fixWirstJointLimits(lastConfiguration);
-    send_des_jstate(joint_pub, gripper_sim, lastConfiguration);
+    send_des_jstate(joint_pub, lastConfiguration);
     ros::spinOnce();
 
     //printing list l solutions
@@ -214,7 +206,7 @@ void InverseDifferential::talker(){
     std::cout << "]" << std::endl;
 
     if(checkWorkArea(q)){cout << "The robot's configuration is inside the working area\n\n";}
-    else {cout << "The robot's configuration is NOT inside the working area\n";}
+    else {cout << "The robot's configuration is NOT inside the working area\n"; exit(1);}
 
     Vector3d xef1;
     ur5Direct(xef1,Rf,v1.col(99));
@@ -225,10 +217,6 @@ void InverseDifferential::talker(){
 
 
 //Convertion functions
-/**
- * function that convert the euler angles in a quaternion
- * using the XYZ convention
- */
 Quaterniond InverseDifferential::eulerAnglesToQuaternion(const Vector3d& euler) {
     Quaterniond quaternion;
 
@@ -237,10 +225,6 @@ Quaterniond InverseDifferential::eulerAnglesToQuaternion(const Vector3d& euler) 
     return quaternion;
 }
 
-/**
- * function that gives the euler angles XYZ from the rotation
- * matrix
- */
 Vector3d InverseDifferential::rotationMatrixToEulerAngles(const Matrix3d& rotationMatrix) {
     Vector3d euler;
 
@@ -252,9 +236,6 @@ Vector3d InverseDifferential::rotationMatrixToEulerAngles(const Matrix3d& rotati
     return euler;
 }
 
-/**
- * function that convert the euler angles XYZ in a quaternion
- */
 Matrix3d InverseDifferential::eulerAnglesToRotationMatrix(const Vector3d& euler) {
     Matrix3d rotationMatrix;
 
@@ -305,14 +286,6 @@ Quaterniond InverseDifferential::rotationMatrixToQuaternion(const Matrix3d& rota
     return quaternion;
 }
 
-/**
- * given the pose of a block in the world frame, return the pose of the same
- * block in the robot frame.
- * 
- * The coordinates and orientation has the same unit of gazebo (in meters and radiants)
- * 
- * Useful when specifing the block pose w.r.t world frame
- */
 void InverseDifferential::worldToRobotFrame(Vector3d& coords, Vector3d& euler){
     Vector4d position;
     position << coords[0], coords[1], coords[2], 1;
@@ -330,10 +303,6 @@ void InverseDifferential::worldToRobotFrame(Vector3d& coords, Vector3d& euler){
 
 
 //Inverse differential functions
-/**
- * given the joints values, return the end effector position
- * and the rotation matrix
- */
 void InverseDifferential::ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des){
     
     Matrix4d t10 = getRotationMatrix(q_des(0), ALPHA(0), D(0), A(0));
@@ -349,10 +318,6 @@ void InverseDifferential::ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des){
     Re = t60.block(0, 0, 3, 3);
 }
 
-/**
- * given the joints values, returns the computet jacobian
- * for the ur5
- */
 MatrixXd InverseDifferential::ur5Jac(VectorXd v){
     VectorXd q_des(6);
 
@@ -399,9 +364,6 @@ MatrixXd InverseDifferential::ur5Jac(VectorXd v){
     return J;  
 }
 
-/**
- * first of the two functions that generates the trajectory for the robot
- */
 list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorXd T,Matrix3d Kp,Matrix3d Kphi){
     Vector3d xe;
     Matrix3d Re;
@@ -438,9 +400,6 @@ list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion
     return q;
 }
 
-/**
- * second of the two functions that generates the trajectory for the robot
- */
 VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi){
     MatrixXd J=ur5Jac(qk);     
     
@@ -458,11 +417,27 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
       
 
     VectorXd dotQ(6);
-    if(abs(J.determinant())<1e-3){ 
-        cout<<"NEAR SINGULARITY"<<endl;   
-                                                                    
-        MatrixXd identity = MatrixXd::Identity(6,6);
-        J = J.transpose()*((J * J.transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());     //damped pseudo inverse
+    double determinant = abs(J.determinant());
+    MatrixXd identity = MatrixXd::Identity(6,6);
+
+    if(determinant<=1e-4){
+        cout<<"NEAR SINGULARITY 4"<<endl;
+        J = J.transpose()*((J * J.transpose() + pow(1e-7,2)*identity).inverse());
+        dotQ=J*idk;
+    }
+    else if(determinant<=1e-3){
+        cout<<"NEAR SINGULARITY 3"<<endl;
+        J = J.transpose()*((J * J.transpose() + pow(1e-3,2)*identity).inverse());
+        dotQ=J*idk;
+    }
+    else if(determinant<=1e-2){ 
+        cout<<"NEAR SINGULARITY 2"<<endl;                                                    
+        J = J.transpose()*((J * J.transpose() + pow(1e-2,2)*identity).inverse());
+        dotQ=J*idk;
+    }
+    else if(determinant<=1e-1){ 
+        cout<<"NEAR SINGULARITY 1"<<endl;                                                    
+        J = J.transpose()*((J * J.transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());
         dotQ=J*idk;
     }
     else{
@@ -472,245 +447,6 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
     return dotQ;
 }
 
-/**
- * position as function of time using 
- * interpolation over 4 points
- *
- * FIXME: interpolation is not smooth
-Vector3d InverseDifferential::xd(double ti){
-   Vector3d xd;
-
-    if(intermediate_point_trajectory==0){
-
-        if(iteration==0){     
-            //starting from homing position    
-            Vector3d xef_high;
-            
-            xef_high=xef;
-            xef_high[2]-=0.2;
-   
-            double distance_p0_p1=(xe0-xef_high).norm();
-            double distance_p1_p2=(xef_high-xef).norm();
-            double total_distance=distance_p0_p1+distance_p1_p2;
-
-            double t_p0=0;
-            double t_p2=1;
-            double t_p1=distance_p0_p1/total_distance;
-        
-
-            double t = ti/Tf;
-            Matrix4d M;
-            MatrixXd coeff(4,3);
-            MatrixXd configurations(4,3);
-
-            if(t>=t_p0 && t<t_p1){
-                M<< 1,0,0,0,
-                    1,pow(t_p1,1),pow(t_p1,2),pow(t_p1,3),
-                    0,1,0,0,
-                    0,1,2*pow(t_p1,1),3*pow(t_p1,2);
-                
-                configurations.row(0)<<xe0.transpose();
-                configurations.row(1)<<xef_high.transpose();
-                configurations.row(2)<<0,0,0;
-                configurations.row(3)<<0,0,0;
-                    
-                coeff=M.partialPivLu().solve(configurations);
-                for(int cont=0;cont<3;cont++){
-                    xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
-                }
-            }else{
-                M<< 1,pow(t_p1,1),pow(t_p1,2),pow(t_p1,3),
-                    1,pow(t_p2,1),pow(t_p2,2),pow(t_p2,3),
-                    0,1,2*pow(t_p1,1),3*pow(t_p1,2),
-                    0,1,2*pow(t_p2,1),3*pow(t_p2,2);
-                    
-                configurations.row(0)<<xef_high.transpose();
-                configurations.row(1)<<xef.transpose();
-                configurations.row(2)<<0,0,0;
-                configurations.row(3)<<0,0,0;
-                    
-                coeff=M.partialPivLu().solve(configurations);
-                for(int cont=0;cont<3;cont++){
-                    xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
-                }
-
-            }
-
-        }else{
-            //starting from general position after moving successfully a block
-            Vector3d xe0_high,xef_high;
-            
-            xe0_high=xe0;
-            xe0_high[2]-=0.2;
-
-            xef_high=xef;
-            xef_high[2]-=0.2;
-
-            double distance_p0_p1=(xe0-xe0_high).norm();
-            double distance_p1_p2=(xe0_high-xef_high).norm();
-            double distance_p2_p3=(xef_high-xef).norm();
-            double total_distance=distance_p0_p1+distance_p1_p2+distance_p2_p3;
-            
-
-            double t_p0=0;
-            double t_p3=1;
-            double t_p1=distance_p0_p1/total_distance;
-            double t_p2=1-t_p1;
-
-            
-
-            double t = ti/Tf;
-            Matrix4d M;
-            MatrixXd coeff(4,3);
-            MatrixXd configurations(4,3);
-
-            if(t>=t_p0 && t<t_p1){
-                M<< 1,0,0,0,
-                    1,pow(t_p1,1),pow(t_p1,2),pow(t_p1,3),
-                    0,1,0,0,
-                    0,1,2*pow(t_p1,1),3*pow(t_p1,2);
-                    
-                configurations.row(0)<<xe0.transpose();
-                configurations.row(1)<<xe0_high.transpose();
-                configurations.row(2)<<0,0,0;
-                configurations.row(3)<<0,0,0;
-
-                coeff=M.partialPivLu().solve(configurations);
-                for(int cont=0;cont<3;cont++){
-                    xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
-                }
-            }else if(t>=t_p1 && t<t_p2){
-                M<< 1,pow(t_p1,1),pow(t_p1,2),pow(t_p1,3),
-                    1,pow(t_p2,1),pow(t_p2,2),pow(t_p2,3),
-                    0,1,2*pow(t_p1,1),3*pow(t_p1,2),
-                    0,1,2*pow(t_p2,1),3*pow(t_p2,2);
-                    
-                configurations.row(0)<<xe0_high.transpose();
-                configurations.row(1)<<xef_high.transpose();
-                configurations.row(2)<<0,0,0;
-                configurations.row(3)<<0,0,0;
-                    
-                coeff=M.partialPivLu().solve(configurations);
-                for(int cont=0;cont<3;cont++){
-                    xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
-                }
-
-            }
-            else{
-                M<< 1,pow(t_p2,1),pow(t_p2,2),pow(t_p2,3),
-                    1,pow(t_p3,1),pow(t_p3,2),pow(t_p3,3),
-                    0,1,2*pow(t_p2,1),3*pow(t_p2,2),
-                    0,1,2*pow(t_p3,1),3*pow(t_p3,2);
-                    
-                configurations.row(0)<<xef_high.transpose();
-                configurations.row(1)<<xef.transpose();
-                configurations.row(2)<<0,0,0;
-                configurations.row(3)<<0,0,0;
-                    
-                coeff=M.partialPivLu().solve(configurations);
-                for(int cont=0;cont<3;cont++){
-                    xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
-                }
-            }
-        }
-    }
-    //INTERMEDIATE POINT IN CASE OF ERROR IN MOTION
-    else{
-        Vector3d xe0_high,xef_high;
-            
-        xe0_high=xe0;
-        xe0_high[2]-=0.2;
-
-        xef_high=xef;
-        xef_high[2]-=0.2;
-
-        double distance_p0_p1=(xe0-xe0_high).norm();
-        double distance_p1_p2=(xe0_high-xe_intermediate).norm();
-        double distance_p2_p3=(xe_intermediate-xef_high).norm();
-        double distance_p3_p4=(xef_high-xef).norm();
-        double total_distance=distance_p0_p1+distance_p1_p2+distance_p2_p3+distance_p3_p4;
-            
-
-        double t_p0=0;
-        double t_p4=1;
-        double t_p1=distance_p0_p1/total_distance;
-        double t_p2=distance_p1_p2/total_distance;
-        double t_p3=1-t_p1-t_p2;
-
-            
-
-        double t = ti/Tf;
-        Matrix4d M;
-        MatrixXd coeff(4,3);
-        MatrixXd configurations(4,3);
-
-        if(t>=t_p0 && t<t_p1){
-            M<< 1,0,0,0,
-            1,pow(t_p1,1),pow(t_p1,2),pow(t_p1,3),
-            0,1,0,0,
-            0,1,2*pow(t_p1,1),3*pow(t_p1,2);
-                    
-            configurations.row(0)<<xe0.transpose();
-            configurations.row(1)<<xe0_high.transpose();
-            configurations.row(2)<<0,0,0;
-            configurations.row(3)<<0,0,0;
-                    
-            coeff=M.partialPivLu().solve(configurations);
-            for(int cont=0;cont<3;cont++){
-                xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
-            }
-        }else if(t>=t_p1 && t<t_p2){
-            M<< 1,pow(t_p1,1),pow(t_p1,2),pow(t_p1,3),
-                1,pow(t_p2,1),pow(t_p2,2),pow(t_p2,3),
-                0,1,2*pow(t_p1,1),3*pow(t_p1,2),
-                0,1,2*pow(t_p2,1),3*pow(t_p2,2);
-                    
-            configurations.row(0)<<xe0_high.transpose();
-            configurations.row(1)<<xe_intermediate.transpose();
-            configurations.row(2)<<0,0,0;
-            configurations.row(3)<<0,0,0;
-                    
-            coeff=M.partialPivLu().solve(configurations);
-            for(int cont=0;cont<3;cont++){
-                xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
-            }
-
-        }
-        else if(t>=t_p2 && t<t_p3){
-            M<< 1,pow(t_p2,1),pow(t_p2,2),pow(t_p2,3),
-                1,pow(t_p3,1),pow(t_p3,2),pow(t_p3,3),
-                0,1,2*pow(t_p2,1),3*pow(t_p2,2),
-                0,1,2*pow(t_p3,1),3*pow(t_p3,2);
-                    
-            configurations.row(0)<<xe_intermediate.transpose();
-            configurations.row(1)<<xef_high.transpose();
-            configurations.row(2)<<0,0,0;
-            configurations.row(3)<<0,0,0;
-                    
-            coeff=M.partialPivLu().solve(configurations);
-            for(int cont=0;cont<3;cont++){
-                xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
-            }
-        }else{
-            M<< 1,pow(t_p3,1),pow(t_p3,2),pow(t_p3,3),
-                1,pow(t_p4,1),pow(t_p4,2),pow(t_p4,3),
-                0,1,2*pow(t_p3,1),3*pow(t_p3,2),
-                0,1,2*pow(t_p4,1),3*pow(t_p4,2);
-                    
-            configurations.row(0)<<xef_high.transpose();
-            configurations.row(1)<<xef.transpose();
-            configurations.row(2)<<0,0,0;
-            configurations.row(3)<<0,0,0;
-                    
-            coeff=M.partialPivLu().solve(configurations);
-            for(int cont=0;cont<3;cont++){
-                xd(cont)=coeff(0,cont)+coeff(1,cont)*t+coeff(2,cont)*pow(t,2)+coeff(3,cont)*pow(t,3);
-        }
-        }
-    }
-    return xd;
-}
-*/
 Vector3d InverseDifferential::xd(double ti){
     Vector3d xd;
     double t = ti/Tf;
@@ -723,10 +459,7 @@ Vector3d InverseDifferential::xd(double ti){
     return xd;
 }
 
-/**
- * implement the slerp method
- */
-Quaterniond InverseDifferential::qd( double ti){
+Quaterniond InverseDifferential::qd(double ti){
     double t=ti/Tf;
     Quaterniond qd;
     if(t>=1){
@@ -738,10 +471,6 @@ Quaterniond InverseDifferential::qd( double ti){
     return qd;
 }
   
-/**
- * given position and orientation, returns the possible
- * joints' configurations
- */
 MatrixXd InverseDifferential::ur5Inverse(Vector3d &p60, Matrix3d &Re){
     MatrixXd Th(6, 8);
     
@@ -996,10 +725,6 @@ MatrixXd InverseDifferential::ur5Inverse(Vector3d &p60, Matrix3d &Re){
     return Th;
 }
 
-/**
- * compute the homogeneous matrix for the computation of the direct
- * kinematic
- */
 Matrix4d InverseDifferential::getRotationMatrix(double th, double alpha, double d, double a){
     Matrix4d rotation;
     rotation << cos(th), -sin(th)*cos(alpha), sin(th)*sin(alpha), a*cos(th),
@@ -1014,10 +739,6 @@ Matrix4d InverseDifferential::getRotationMatrix(double th, double alpha, double 
     return rotation;                                        
 }
 
-/**
- * remove all the NON possible solutions from the inverse problem
- * checking if each columns contains at least a NaN value
- */
 MatrixXd InverseDifferential::purgeNanColumn(MatrixXd matrix){
     MatrixXd newMatrix(6, 0);
     int nColumns = 0;
@@ -1037,9 +758,6 @@ MatrixXd InverseDifferential::purgeNanColumn(MatrixXd matrix){
 
 
 //Other functions
-/**
- * function that controls if the end effector is inside the working area
- */
 bool InverseDifferential::checkWorkArea(const Vector3d& position){
     //approximation to 3 decimal to exlude precision errors
     double x = floor((position[0]/SCALAR_FACTOR)*100)/100;
@@ -1057,10 +775,6 @@ bool InverseDifferential::checkWorkArea(const Vector3d& position){
     return false;
 }
 
-/**
- * function that controls if the given joint configuration, the end
- * effector in inside the working area
- */
 bool InverseDifferential::checkWorkArea(const VectorXd& joints){
     //use direct kinematic to find end effector position
     Vector3d xe;
@@ -1071,9 +785,6 @@ bool InverseDifferential::checkWorkArea(const VectorXd& joints){
     return checkWorkArea(xe);
 }
 
-/**
- * print the values of a generic vector
- */
 void InverseDifferential::printVector(VectorXd v){
     for (int cb=0;cb<v.size();cb++){
         cout <<v(cb)<<"  ";
@@ -1081,27 +792,16 @@ void InverseDifferential::printVector(VectorXd v){
     cout<<endl<<endl;
 }
 
-/**
- * function that checks if a value is close to zero
- */
 bool InverseDifferential::almostZero(double value){
     return abs(value)<ALMOST_ZERO;
 };
 
-/**
- * function that checks if the angle is close to zero.
- * if so, set the value to zero
- */
 void InverseDifferential::angleCorrection(double & angle){
     if(almostZero(angle*pow(10,9))){
         angle=0;
     }
 }
 
-/**
- * the wirst's joint can reach its limits, given the desired configuration
- * bring back in the valid range the joint value -2pi;2pi
- */
 void InverseDifferential::fixWirstJointLimits(Eigen::VectorXd& joints){
     for(int i=3; i<=5; ++i){
         joints[i] = fmod(joints[i] + M_PI, 2 * M_PI) - M_PI;

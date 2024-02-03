@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(target_pose)
+project(ur5)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -11,9 +11,15 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
-  geometry_msgs
+  sensor_msgs
   message_generation
+  ur5_invDiff_library
+  roslaunch
 )
+
+roslaunch_add_file_check(launch)
+
+find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -49,19 +55,11 @@ find_package(catkin REQUIRED COMPONENTS
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-add_message_files(
-  FILES
-  GraspOrientation.msg
-  GraspPosition.msg
-  Quaternion.msg
-  TargetPose.msg
-)
-
-## Generate services in the 'srv' folder
-add_service_files(
-  FILES
-  Target.srv
-)
+# add_message_files(
+#   FILES
+#   Message1.msg
+#   Message2.msg
+# )
 
 ## Generate actions in the 'action' folder
 # add_action_files(
@@ -69,13 +67,21 @@ add_service_files(
 #   Action1.action
 #   Action2.action
 # )
+  
+ ## Generate services in the 'srv' folder
+add_service_files(
+  FILES
+  tp2mp.srv
+  ACK.srv
+)
 
 ## Generate added messages and services with any dependencies listed here
 generate_messages(
   DEPENDENCIES
   std_msgs
-  geometry_msgs
+  sensor_msgs
 )
+   
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -108,8 +114,8 @@ generate_messages(
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES target_pose
-  CATKIN_DEPENDS roscpp rospy std_msgs message_runtime
+  LIBRARIES ${PROJECT_NAME}
+  CATKIN_DEPENDS roscpp rospy std_msgs ur5_invDiff_library
   DEPENDS system_lib
 )
 
@@ -120,13 +126,13 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+  include
   ${catkin_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/target_pose.cpp
+#   src/${PROJECT_NAME}/ur5.cpp
 # )
 
 ## Add cmake target dependencies of the library
@@ -137,7 +143,24 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-# add_executable(${PROJECT_NAME}_node src/target_pose_node.cpp)
+# add_executable(${PROJECT_NAME}_node src/ur5_node.cpp)
+
+add_executable(motion_planner src/motion_planner.cpp)
+add_executable(task_planner src/task_planner.cpp)
+
+#add_dependencies(motion_planner ur5_gencpp)
+#add_dependencies(task_planner ur5_gencpp)
+
+target_link_libraries(motion_planner
+${catkin_LIBRARIES}
+Eigen3::Eigen
+ur5_invDiff_library
+)
+
+target_link_libraries(task_planner
+${catkin_LIBRARIES}
+Eigen3::Eigen
+)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -201,25 +224,10 @@ include_directories(
 #############
 
 ## Add gtest based cpp test target and link libraries
-# catkin_add_gtest(${PROJECT_NAME}-test test/test_target_pose.cpp)
+# catkin_add_gtest(${PROJECT_NAME}-test test/test_ur5.cpp)
 # if(TARGET ${PROJECT_NAME}-test)
 #   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
 # endif()
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
-
-add_executable(vision src/vision.cpp)
-target_link_libraries(vision ${catkin_LIBRARIES})
-
-add_executable(motion src/motion.cpp)
-target_link_libraries(motion ${catkin_LIBRARIES})
-
-add_executable(vision_service src/vision_service.cpp)
-target_link_libraries(vision_service ${catkin_LIBRARIES})
-
-add_executable(motion_client src/motion_client.cpp)
-target_link_libraries(motion_client ${catkin_LIBRARIES})
-
-add_dependencies(vision beginner_tutorials_generate_messages_cpp)
-add_dependencies(motion beginner_tutorials_generate_messages_cpp)

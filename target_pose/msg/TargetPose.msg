@@ -1,3 +1,0 @@
-target_pose/GraspPosition position
-target_pose/GraspOrientation orientation
-target_pose/Quaternion quaternion

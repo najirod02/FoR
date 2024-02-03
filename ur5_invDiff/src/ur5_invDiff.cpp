@@ -10,7 +10,21 @@ int main(int argc, char **argv){
         return 1;
     }
 
-    InverseDifferential myPub(argc, argv);
+    //read input values and start node
+    double xef[3];
+    double phief[3];
+    double gripper_left, gripper_right;
+
+    for(int i=1; i<=3; ++i)
+        xef[i-1] = stod(argv[i]);
+
+    for(int i=4; i<=6; ++i)
+        phief[i-4] = stod(argv[i]); 
+
+    gripper_left = stod(argv[7]);
+    gripper_right = stod(argv[7]);
+
+    InverseDifferential myPub(argc, argv, xef, phief, gripper_left, gripper_right);
 
     return 0;
 }

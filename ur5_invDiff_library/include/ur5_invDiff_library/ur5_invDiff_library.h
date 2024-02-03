@@ -38,9 +38,10 @@ class InverseDifferential
 
     const static int JOINT_NAMES = 6;
     const double SCALAR_FACTOR = 1.0;
-    const double DAMPING_FACTOR = 1e-6;//used in the damped pseudoinverse matrix
+    //TODO: find the right damping factor
+    const double DAMPING_FACTOR = pow(10, -1.15);//used in the damped pseudoinverse matrix
     const double ALMOST_ZERO = 1e-7;//threshold when a values is recognized as zero
-    const int RATE = 100;//default: 1 kHz
+    const int RATE = 1000;
 
     //range for working area    
     //in the robot frame
@@ -70,62 +71,152 @@ class InverseDifferential
 
     char **argv;
     int argc;
-    bool gripper_sim;
 
     public:
-        InverseDifferential(int argc_, char** argv_);
+        InverseDifferential(int argc_, char** argv_, double* xef_, double* phief_, double gripper_left, double gripper_right);
 
         //ROS functions
-        void send_des_jstate(ros::Publisher joint_pub, bool gripper_sim, Eigen::VectorXd q_des);
 
+        /**
+         * a simple functions that cretes the message and publish it through the 
+         * topic.
+         */
+        void send_des_jstate(ros::Publisher joint_pub, Eigen::VectorXd q_des);
+
+        /**
+         * receive the joints states from the topic
+         * need to check the correspondence of q index and position index
+         * to make shure that we are reading the correct joint (names)
+         */
         void receive_jstate(const sensor_msgs::JointState::ConstPtr& msg);
 
+        /**
+         * main function,
+         * initialize nodes, reading and sending the new joint states
+         */
         void talker();
 
 
         //Convertion functions
-        Eigen::Vector3d rotationMatrixToEulerAngles(const Eigen::Matrix3d& rotationMatrix);
 
+        /**
+         * function that convert the euler angles in a quaternion
+         * using the XYZ convention
+         */
         Eigen::Matrix3d eulerAnglesToRotationMatrix(const Eigen::Vector3d& euler);
 
+        /**
+         * function that gives the euler angles XYZ from the rotation
+         * matrix
+         */
+        Eigen::Vector3d rotationMatrixToEulerAngles(const Eigen::Matrix3d& rotationMatrix);
+
+        /**
+         * function that convert the euler angles XYZ in a quaternion
+         */
         Eigen::Quaterniond eulerAnglesToQuaternion(const Eigen::Vector3d& euler);
 
         Eigen::Quaterniond rotationMatrixToQuaternion(const Eigen::Matrix3d& rotationMatrix);
 
+        /**
+         * given the pose of a block in the world frame, return the pose of the same
+         * block in the robot frame.
+         * 
+         * The coordinates and orientation has the same unit of gazebo (in meters and radiants)
+         * 
+         * Useful when specifing the block pose w.r.t world frame
+         */
         void worldToRobotFrame(Eigen::Vector3d& coords, Eigen::Vector3d& euler);
 
 
         //Inverse differential functions
+
+        /**
+         * given the joints values, return the end effector position
+         * and the rotation matrix
+         */
         void ur5Direct(Eigen::Vector3d &xe, Eigen::Matrix3d &Re,const Eigen::VectorXd q_des);
 
-        Eigen::MatrixXd ur5Jac(Eigen::VectorXd v    );
+        /**
+         * given the joints values, returns the computet jacobian
+         * for the ur5
+         */
+        Eigen::MatrixXd ur5Jac(Eigen::VectorXd v);
 
+        /**
+         * first of the two functions that generates the trajectory for the robot
+         */
         list<Eigen::VectorXd> invDiffKinematicControlSimCompleteQuaternion(Eigen::VectorXd TH0,Eigen::VectorXd T,Eigen::Matrix3d Kp,Eigen::Matrix3d Kphi);
 
+        /**
+         * second of the two functions that generates the trajectory for the robot
+         */
         Eigen::VectorXd invDiffKinematicControlCompleteQuaternion(Eigen::VectorXd qk,Eigen::Vector3d xe,Eigen::Vector3d xd,Eigen::Vector3d vd,Eigen::Vector3d omegad,Eigen::Quaterniond qe,Eigen::Quaterniond qd,Eigen::Matrix3d Kp,Eigen::Matrix3d Kphi);
 
+        /**
+         * position as a function over time
+         * using linear interpolation between
+         * 2 points
+         */
         Eigen::Vector3d xd(double ti);
 
+        /**
+         * implement the slerp method
+         */
         Eigen::Quaterniond qd(double ti);
 
+        /**
+         * given position and orientation, returns the possible
+         * joints' configurations
+         */
         Eigen::MatrixXd ur5Inverse(Eigen::Vector3d &p60, Eigen::Matrix3d &Re);
 
+        /**
+         * compute the homogeneous matrix for the computation of the direct
+         * kinematic
+         */
         Eigen::Matrix4d getRotationMatrix(double th, double alpha, double d, double a);
 
+        /**
+         * remove all the NON possible solutions from the inverse problem
+         * checking if each columns contains at least a NaN value
+         */
         Eigen::MatrixXd purgeNanColumn(Eigen::MatrixXd matrix);
 
 
         //Other functions
+
+        /**
+         * function that controls if the end effector is inside the working area
+         */
         bool checkWorkArea(const Eigen::Vector3d& position);
 
+        /**
+         * function that controls if the given joint configuration, the end
+         * effector in inside the working area
+         */
         bool checkWorkArea(const Eigen::VectorXd& joints);
 
+        /**
+         * print the values of a generic vector
+         */
         void printVector(Eigen::VectorXd v);
 
+        /**
+         * function that checks if a value is close to zero
+         */
         bool almostZero(double value);
 
+        /**
+         * function that checks if the angle is close to zero.
+         * if so, set the value to zero
+         */
         void angleCorrection(double & angle);
 
+        /**
+         * the wirst's joint can reach its limits, given the desired configuration
+         * bring back in the valid range the joint value -2pi;2pi
+         */
         void fixWirstJointLimits(Eigen::VectorXd& joints);
 };
 
