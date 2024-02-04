@@ -44,8 +44,8 @@ class InverseDifferential
     const double SCALAR_FACTOR = 1.0;
     //used in the damped pseudoinverse matrix
     //const double DAMPING_FACTOR = pow(10, -1.15);//determinant method
-    //TODO: diminuire valore andando verso i negativi ultimo utilizzato -1
-    const double DAMPING_FACTOR = pow(10, -1);//using eigenvalues method
+    //TODO: diminuire valore [-1.001; -1]
+    const double DAMPING_FACTOR = pow(10, -1.001);//using eigenvalues method
     const double ALMOST_ZERO = 1e-7;//threshold when a values is recognized as zero
     const int RATE = 1000;//set to 100 to slow down
 

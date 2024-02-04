@@ -101,11 +101,11 @@ int InverseDifferential::talker(){
 
     while(final_end==0 && ros::ok()){
         error=0;
-        // service_test::tp2mp srv3;
         ros::ServiceServer service4 = n.advertiseService("tp_mp_communication", &InverseDifferential::motionPlannerToTaskPlannerServiceResponse, this);
-        cout << "final_end: " << final_end << endl;
         ros::spin();
     }
+
+    ROS_INFO("terminating motion planner");
     return 0;
 }
 

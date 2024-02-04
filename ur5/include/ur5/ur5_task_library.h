@@ -40,7 +40,7 @@ enum stato{
 const double GRIPPER_CLOSURE=-0.0639;//value of closed gripper
 const double GRIPPER_OPEN = 0.3;//value of open gripper
 const double GRASPING_HEIGHT=1.02;//safe height to take the block
-const double SAFE_Z_MOTION = 1.3;//used for the intermediate movement between initial and final position
+const double SAFE_Z_MOTION = 1.35;//used for the intermediate movement between initial and final position
 
 Vector3d euler,position;       
 Vector3d pos[5];
