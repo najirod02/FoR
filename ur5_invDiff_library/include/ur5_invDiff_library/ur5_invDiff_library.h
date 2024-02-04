@@ -13,6 +13,7 @@
 #include "sensor_msgs/JointState.h"
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <Eigen/Dense>
 #include <algorithm>
 #include <iterator>
 #include <sstream>
@@ -38,8 +39,7 @@ class InverseDifferential
 
     const static int JOINT_NAMES = 6;
     const double SCALAR_FACTOR = 1.0;
-    //TODO: find the right damping factor
-    const double DAMPING_FACTOR = pow(10, -1.15);//used in the damped pseudoinverse matrix
+    const double DAMPING_FACTOR = pow(10, 0.0578125);//used in the damped pseudoinverse matrix
     const double ALMOST_ZERO = 1e-7;//threshold when a values is recognized as zero
     const int RATE = 1000;
 

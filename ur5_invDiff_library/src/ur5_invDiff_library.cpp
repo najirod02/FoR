@@ -417,32 +417,13 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
       
 
     VectorXd dotQ(6);
-    double determinant = abs(J.determinant());
     MatrixXd identity = MatrixXd::Identity(6,6);
 
-    if(determinant<=1e-4){
-        cout<<"NEAR SINGULARITY 4"<<endl;
-        J = J.transpose()*((J * J.transpose() + pow(1e-7,2)*identity).inverse());
-        dotQ=J*idk;
-    }
-    else if(determinant<=1e-3){
-        cout<<"NEAR SINGULARITY 3"<<endl;
-        J = J.transpose()*((J * J.transpose() + pow(1e-3,2)*identity).inverse());
-        dotQ=J*idk;
-    }
-    else if(determinant<=1e-2){ 
-        cout<<"NEAR SINGULARITY 2"<<endl;                                                    
-        J = J.transpose()*((J * J.transpose() + pow(1e-2,2)*identity).inverse());
-        dotQ=J*idk;
-    }
-    else if(determinant<=1e-1){ 
-        cout<<"NEAR SINGULARITY 1"<<endl;                                                    
-        J = J.transpose()*((J * J.transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());
-        dotQ=J*idk;
-    }
-    else{
-        dotQ = J.partialPivLu().solve(idk);
-    }
+    //dyanmic damping factor using eigenvalues
+    VectorXd eigenvalues = (J * J.transpose()).eigenvalues().real();
+    double dampingFactor = DAMPING_FACTOR / eigenvalues.maxCoeff();
+    J = J.transpose() * ((J * J.transpose() + pow(dampingFactor, 2) * identity).inverse());
+    dotQ = J * idk;
     
     return dotQ;
 }

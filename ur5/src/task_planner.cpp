@@ -44,7 +44,7 @@ const double WORLD_TO_ROBOT_Z = 1.75;
 Vector3d pos[5];
 Vector3d phi[5];
 
-const double GRIPPER_CLOSURE=-0.0638;
+const double GRIPPER_CLOSURE=-0.0639;
 const double ALTEZZA_GRASPING=1.02;
 
 
@@ -223,7 +223,7 @@ void gestisciStato(stato &state,ros::NodeHandle n){
 
         case high_block_take:{
             gripper=0.3;                //gripper aperto
-            xef[2]+=0.3;                //sposto la z in alto in modo da evitare gli altri blocchi 
+            xef[2]+=0.35;                //sposto la z in alto in modo da evitare gli altri blocchi 
             ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);   
             while(actual_iteration!=iteration && ros::ok()){        //fino a quando non mi arriva una service request continuo a mettere una service response
                     
