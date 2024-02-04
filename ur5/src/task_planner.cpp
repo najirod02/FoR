@@ -8,8 +8,7 @@
 #include <sstream>
 #include <iostream>
 #include <list>
-#include "ur5/ACK.h"
-#include "ur5/tp2mp.h"
+#include "ur5/ServiceMessage.h"
 
 using namespace std;
 using namespace Eigen;
@@ -26,7 +25,7 @@ enum stato{
     high_class_release,      //stato in cui il gripper ha preso il blocco e va nella posizione appena sopra il punto di rilascio
     class_release,          //punto di rilascio del blocco preso
     motion_error,           //gestisce errore nel caso ci sia un problema nel motion mette un punto intermedio nel motion 
-    waitACK,             //aspetta l'ack dal motion planner se arriva entra nel prossimo stato
+    //waitACK,             //aspetta l'ack dal motion planner se arriva entra nel prossimo stato
     block_request,    //chiede il prossimo blocco 
     no_more_blocks     //non ci sono più blocchi termina il programma 
     
@@ -34,18 +33,19 @@ enum stato{
 };
 void gestisciStato(stato &state,ros::NodeHandle n);     //funzione macchina a stati 
 
-bool sendPoseToMotionPlanner(ur5::tp2mp::Request &req,ur5::tp2mp::Response &res); //funzione di risposta alla service request del motion planner
-
 //transformation from world to robot frame
 const double WORLD_TO_ROBOT_X = -0.5;
 const double WORLD_TO_ROBOT_Y = 0.35;
 const double WORLD_TO_ROBOT_Z = 1.75;
+Vector3d euler,position;       
 
 Vector3d pos[5];
 Vector3d phi[5];
 
 const double GRIPPER_CLOSURE=-0.0639;
 const double ALTEZZA_GRASPING=1.02;
+//const double ALTEZZA_GRASPING=0.925+0.147;     //uncomment if bugged
+
 
 
 static double xef[3];              //position end effector to give to the motion
@@ -67,7 +67,7 @@ static Vector3d phief_class;   //phi vector used for the class
 static int error;       //0:successfull motion  -- 1:unreachable block  -- 2:error in motion
 
 
-static int ack;             //variable used for service synchronization
+const int ack=0;             //variable used for service synchronization
 static int actual_ack=0;    //variable used for service synchronization
 
 static int iteration;           //variable used for service synchronization
@@ -81,7 +81,7 @@ int main(int argc, char** argv){
     ros::init(argc, argv, "task_planner");
     ros::NodeHandle n;
     state=start;
-    n_classes=5;            //modificare questo valore in base a quanti blocchi si vuole mettere 
+    n_classes=4;            //modificare questo valore in base a quanti blocchi si vuole mettere 
 
     iteration=1;            //used for synchronization of the service
     actual_iteration=0;
@@ -107,7 +107,7 @@ void gestisciStato(stato &state,ros::NodeHandle n){
             phi[0]<< 0, 0, 0;
             //X1-Y2-Z2-TWINFILLET
             pos[1]<< 0.7, 0.7, 0.87;
-            phi[1]<< 0, 0, -0.785724;
+            phi[1]<< 0, 0, -0.785398;
             //X1-Y3-Z2-FILLET
             pos[2]<< 0.85, 0.5, 0.87;
             phi[2]<< 0, 0, 0;
@@ -124,15 +124,6 @@ void gestisciStato(stato &state,ros::NodeHandle n){
             class_of_block[2]=3;
             class_of_block[3]=4;
             class_of_block[4]=5;
-
-            //converto i blocchi in ROBOT FRAME 
-            /*
-            for(int i=0;i<n_classes;i++){
-                worldToRobotFrame(pos[i],phi[i]);
-            }
-            */
-            
-
             
             ROS_INFO("passaggio a block_request");
             state=block_request;
@@ -165,7 +156,7 @@ void gestisciStato(stato &state,ros::NodeHandle n){
                 case 2:{
                     //X1-Y2-Z2-TWINFILLET
                     phief_class<<0,0,M_PI/2;
-                    xef_class<<0.1,0.42,ALTEZZA_GRASPING;
+                    xef_class<<0.1,0.40,ALTEZZA_GRASPING;
 
                     closed_gripper=GRIPPER_CLOSURE; 
                    
@@ -174,7 +165,7 @@ void gestisciStato(stato &state,ros::NodeHandle n){
                 case 3:{
                     //X1-Y3-Z2-FILLET
                     phief_class<<0,0,M_PI/2;
-                    xef_class<<0.1,0.50,ALTEZZA_GRASPING;
+                    xef_class<<0.1,0.48,ALTEZZA_GRASPING;
 
                     closed_gripper=GRIPPER_CLOSURE; 
                     
@@ -183,7 +174,7 @@ void gestisciStato(stato &state,ros::NodeHandle n){
                 case 4:{
                     //X1-Y4-Z1
                     phief_class<<0,0,M_PI/2;
-                    xef_class<<0.1,0.58,ALTEZZA_GRASPING;
+                    xef_class<<0.1,0.56,ALTEZZA_GRASPING;
 
                     closed_gripper=GRIPPER_CLOSURE; 
                     
@@ -192,7 +183,7 @@ void gestisciStato(stato &state,ros::NodeHandle n){
                 case 5:{
                     //X1-Y4-Z2
                     phief_class<<0,0,M_PI/2;
-                    xef_class<<0.1,0.66,ALTEZZA_GRASPING;
+                    xef_class<<0.1,0.64,ALTEZZA_GRASPING;
 
                     closed_gripper=GRIPPER_CLOSURE;                   
 
@@ -201,7 +192,7 @@ void gestisciStato(stato &state,ros::NodeHandle n){
                 case 6:{
                     //X2-Y2-Z2  non si può usare
                     phief_class<<0,0,M_PI/2;
-                    xef_class<<0.1,0.74,ALTEZZA_GRASPING;
+                    xef_class<<0.1,0.72,ALTEZZA_GRASPING;
 
                     closed_gripper=GRIPPER_CLOSURE; 
 
@@ -223,16 +214,57 @@ void gestisciStato(stato &state,ros::NodeHandle n){
 
         case high_block_take:{
             gripper=0.3;                //gripper aperto
-            xef[2]+=0.35;                //sposto la z in alto in modo da evitare gli altri blocchi 
-            ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);   
-            while(actual_iteration!=iteration && ros::ok()){        //fino a quando non mi arriva una service request continuo a mettere una service response
+            xef[2]+=0.3;                //sposto la z in alto in modo da evitare gli altri blocchi 
+            // ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);   
+            // while(actual_iteration!=iteration && ros::ok()){        //fino a quando non mi arriva una service request continuo a mettere una service response
                     
-                ros::spinOnce();
-            }
+            //     ros::spinOnce();
+            // }
             
-            state=waitACK;           //entra nello stato di wait ack fino a quando il node motion non finisce
-            next_state=block_take;  //mette quale sarà lo stato futuro nella motion
-            actual_iteration++;     //serve per sync
+            // state=waitACK;           //entra nello stato di wait ack fino a quando il node motion non finisce
+            // next_state=block_take;  //mette quale sarà lo stato futuro nella motion
+            // actual_iteration++;     //serve per sync
+
+           
+
+            ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
+            ur5::ServiceMessage srv;
+
+            srv.request.phief1=phief[0];
+            srv.request.phief2=phief[1];
+            srv.request.phief3=phief[2];
+
+            srv.request.xef1=xef[0];
+            srv.request.xef2=xef[1];
+            srv.request.xef3=xef[2];
+            srv.request.gripper=gripper;
+            srv.request.end=final_end;
+            srv.request.ack=0;
+            
+                
+            while(!service.call(srv)); 
+            error=srv.response.error;
+
+            switch(error){
+                    case 0:{                                        //gestione dell'errore (spiegazione ad inizio file sui vari valori)
+                        ROS_INFO("Motion planning executed correctly!\n\n"); 
+                        state=block_take;
+                        break;
+                    }
+                    case 1:{
+                        ROS_INFO("UNREACHABLE POSITION: move on to the next block\n\n");
+                        state=block_request;
+                        break;
+                    }
+                    case 2:{
+                        ROS_INFO("ERROR IN MOTION: move on to a different planning (passing through an intermediate safe point)\n\n");
+                        next_state=block_take;
+                        state=motion_error;
+                        break;
+
+                    }
+                }         
+
             break;
 
         }
@@ -242,31 +274,111 @@ void gestisciStato(stato &state,ros::NodeHandle n){
             //manda una service response con la posizione finale=posizione blocco e gripper aperto 
             
             
-            xef[2]= ALTEZZA_GRASPING;
-            ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
-            while(actual_iteration!=iteration && ros::ok()){
+            xef[2]=ALTEZZA_GRASPING;
+            // ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
+            // while(actual_iteration!=iteration && ros::ok()){
 
-                ros::spinOnce();
-            }
+            //     ros::spinOnce();
+            // }
 
-            state=waitACK;
-            next_state=high_block_release;
-            actual_iteration++; 
+            // state=waitACK;
+            // next_state=high_block_release;
+            // actual_iteration++; 
+            // break;
+
+            ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
+            ur5::ServiceMessage srv;
+
+            srv.request.phief1=phief[0];
+            srv.request.phief2=phief[1];
+            srv.request.phief3=phief[2];
+
+            srv.request.xef1=xef[0];
+            srv.request.xef2=xef[1];
+            srv.request.xef3=xef[2];
+            srv.request.gripper=gripper;
+            srv.request.end=final_end;
+            srv.request.ack=0;
+            
+                
+            while(!service.call(srv)); 
+            error=srv.response.error;
+
+            switch(error){
+                    case 0:{                                        //gestione dell'errore (spiegazione ad inizio file sui vari valori)
+                        ROS_INFO("Motion planning executed correctly!\n\n"); 
+                        state=high_block_release;
+                        break;
+                    }
+                    case 1:{
+                        ROS_INFO("UNREACHABLE POSITION: move on to the next block\n\n");
+                        state=block_request;
+                        break;
+                    }
+                    case 2:{
+                        ROS_INFO("ERROR IN MOTION: move on to a different planning (passing through an intermediate safe point)\n\n");
+                        next_state=high_block_release;
+                        state=motion_error;
+                        break;
+
+                    }
+                }         
+
             break;
         }
         
         case high_block_release:{   //gripper chiuso
             gripper=closed_gripper;
-            xef[2]+=0.35;
-            ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
-            while(actual_iteration!=iteration && ros::ok()){
+            xef[2]+=0.3;
+            // ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
+            // while(actual_iteration!=iteration && ros::ok()){
                     
-                ros::spinOnce();
-            }
+            //     ros::spinOnce();
+            // }
             
-            state=waitACK;
-            next_state=high_class_release;
-            actual_iteration++; 
+            // state=waitACK;
+            // next_state=high_class_release;
+            // actual_iteration++; 
+            // break;
+
+            ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
+            ur5::ServiceMessage srv;
+
+            srv.request.phief1=phief[0];
+            srv.request.phief2=phief[1];
+            srv.request.phief3=phief[2];
+
+            srv.request.xef1=xef[0];
+            srv.request.xef2=xef[1];
+            srv.request.xef3=xef[2];
+            srv.request.gripper=gripper;
+            srv.request.end=final_end;
+            srv.request.ack=0;
+            
+                
+            while(!service.call(srv)); 
+            error=srv.response.error;
+
+            switch(error){
+                    case 0:{                                        //gestione dell'errore (spiegazione ad inizio file sui vari valori)
+                        ROS_INFO("Motion planning executed correctly!\n\n"); 
+                        state=high_class_release;
+                        break;
+                    }
+                    case 1:{srv.request.ack=0;
+                        ROS_INFO("UNREACHABLE POSITION: move on to the next block\n\n");
+                        state=block_request;
+                        break;
+                    }
+                    case 2:{
+                        ROS_INFO("ERROR IN MOTION: move on to a different planning (passing through an intermediate safe point)\n\n");
+                        next_state=high_class_release;
+                        state=motion_error;
+                        break;
+
+                    }
+                }         
+
             break;
 
         }
@@ -279,96 +391,40 @@ void gestisciStato(stato &state,ros::NodeHandle n){
                 xef[i]=xef_class(i);
                 
             }
-            xef[2]+=0.35;                // vado alla posizione sopraelevata 
-            ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
-            while(actual_iteration!=iteration && ros::ok()){
+            xef[2]+=0.3;                // vado alla posizione sopraelevata 
+            // ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
+            // while(actual_iteration!=iteration && ros::ok()){
                     
-                ros::spinOnce();
-            }
+            //     ros::spinOnce();
+            // }
             
-            state=waitACK;
-            next_state=class_release;
-            actual_iteration++; 
-            break;
+            // state=waitACK;
+            // next_state=class_release;
+            // actual_iteration++; 
+            // break;
 
-        }
-        case class_release:{        //gripper chiuso
-            xef[2] = ALTEZZA_GRASPING;
+            ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
+            ur5::ServiceMessage srv;
 
-            
-            ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
-            while(actual_iteration!=iteration && ros::ok()){
-                    
-                ros::spinOnce();
-            }
-            
-            state=waitACK;
-            next_state=high_class_take;
-            actual_iteration++; 
-            break;
-        }
+            srv.request.phief1=phief[0];
+            srv.request.phief2=phief[1];
+            srv.request.phief3=phief[2];
 
-        case high_class_take:{      //gripper aperto
-            gripper=0.3;
-            xef[2]+=0.35;
-
-            if(k++ == n_classes-1) final_end=1;        //nel caso in cui sia arrivato all'ultimo blocco faccio finire sia il task planner che il motion planner
-            ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
-            while(actual_iteration!=iteration && ros::ok()){
-                    
-                ros::spinOnce();
-            }
+            srv.request.xef1=xef[0];
+            srv.request.xef2=xef[1];
+            srv.request.xef3=xef[2];
+            srv.request.gripper=gripper;
+            srv.request.end=final_end;
+            srv.request.ack=0;
             
-            state=waitACK;
-            next_state=block_request;
-            actual_iteration++; 
-            break;
-        }
-        
-        case motion_error:{
-            //Io metterei un possibile punto intermedio solo nel caso in cui avvenga un errore per passare da un punto high ad un altro high
-            
-            //uncomment this section and put a desired intermediate point
-            // xef[0]=;
-            // xef[1]=;       
-            // xef[2]=;
-            // phief[0]=0;
-            // phief[1]=0;
-            // phief[2]=0; 
-
-            
-            
-           
-
-            ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
-            while(actual_iteration!=iteration && ros::ok()){               
-                ros::spinOnce();
-            }
-            iteration++;
-            
-            state=waitACK;
-             
-            break;
-        }
-
-        case waitACK:
-            {           
-                ack=1;          //variabile per synchro
                 
-                //mando una richiesta per un ACK che verrà inviato dal motion planner 
-                ros::ServiceClient service2 = n.serviceClient<ur5::ACK>("ack");
-                ur5::ACK srv2;
-                srv2.request.ack=0;
-                
-                while(!service2.call(srv2));        //fino a quando non riceve risposta continua a chiedere un ack
-                
-                ack=srv2.response.ack2;         //serve per la sync (?) forse si può togliere                 
-                error=srv2.response.error;       //variabile per gestire errore del motion planner       
+            while(!service.call(srv)); 
+            error=srv.response.error;
 
-                switch(error){
+            switch(error){
                     case 0:{                                        //gestione dell'errore (spiegazione ad inizio file sui vari valori)
-                        ROS_INFO("Motion planning executed!\n\n"); //TODO: traduzione in inglese!
-                        state=next_state;
+                        ROS_INFO("Motion planning executed correctly!\n\n"); 
+                        state=class_release;
                         break;
                     }
                     case 1:{
@@ -377,22 +433,156 @@ void gestisciStato(stato &state,ros::NodeHandle n){
                         break;
                     }
                     case 2:{
-                        ROS_INFO("ERROR IN MOTION: move on to a different planning (passing through a intermediate safe point)\n\n");
+                        ROS_INFO("ERROR IN MOTION: move on to a different planning (passing through an intermediate safe point)\n\n");
+                        next_state=class_release;
                         state=motion_error;
                         break;
 
                     }
-                }
-                
-                
-                
-                break;
-            }
-        
-        
-        
+                }         
 
+            break;
+
+        }
+        case class_release:{        //gripper chiuso
+            xef[2]=ALTEZZA_GRASPING;
+
+            
+            // ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
+            // while(actual_iteration!=iteration && ros::ok()){
+                    
+            //     ros::spinOnce();
+            // }
+            
+            // state=waitACK;
+            // next_state=high_class_take;
+            // actual_iteration++; 
+            // break;
+
+            ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
+            ur5::ServiceMessage srv;
+
+            srv.request.phief1=phief[0];
+            srv.request.phief2=phief[1];
+            srv.request.phief3=phief[2];
+
+            srv.request.xef1=xef[0];
+            srv.request.xef2=xef[1];
+            srv.request.xef3=xef[2];
+            srv.request.gripper=gripper;
+            srv.request.end=final_end;
+            srv.request.ack=0;
+            
+                
+            while(!service.call(srv)); 
+            error=srv.response.error;
+
+            switch(error){
+                    case 0:{                                        //gestione dell'errore (spiegazione ad inizio file sui vari valori)
+                        ROS_INFO("Motion planning executed correctly!\n\n"); 
+                        state=high_class_take;
+                        break;
+                    }
+                    case 1:{
+                        ROS_INFO("UNREACHABLE POSITION: move on to the next block\n\n");
+                        state=block_request;
+                        break;
+                    }
+                    case 2:{
+                        ROS_INFO("ERROR IN MOTION: move on to a different planning (passing through an intermediate safe point)\n\n");
+                        next_state=high_class_take;
+                        state=motion_error;
+                        break;
+
+                    }
+                }         
+
+            break;
+        }
+
+        case high_class_take:{      //gripper aperto
+            gripper=0.3;
+            xef[2]+=0.3;
+
+            if(k++ == n_classes-1) final_end=1;        //nel caso in cui sia arrivato all'ultimo blocco faccio finire sia il task planner che il motion planner
+            // ros::ServiceServer service1 = n.advertiseService("send_pose_to_motion_planner", sendPoseToMotionPlanner);
+            // while(actual_iteration!=iteration && ros::ok()){
+                    
+            //     ros::spinOnce();
+            // }
+            
+            // state=waitACK;
+            // next_state=block_request;
+            // actual_iteration++; 
+            // break;
+
+            ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
+            ur5::ServiceMessage srv;
+
+            srv.request.phief1=phief[0];
+            srv.request.phief2=phief[1];
+            srv.request.phief3=phief[2];
+
+            srv.request.xef1=xef[0];
+            srv.request.xef2=xef[1];
+            srv.request.xef3=xef[2];
+            srv.request.gripper=gripper;
+            srv.request.end=final_end;
+            srv.request.ack=0;
+            
+                
+            while(!service.call(srv)); 
+            error=srv.response.error;
+
+            switch(error){
+                    case 0:{                                        //gestione dell'errore (spiegazione ad inizio file sui vari valori)
+                        ROS_INFO("Motion planning executed correctly!\n\n"); 
+                        if(final_end!=1)state=block_request;
+                        else state=no_more_blocks;
+                        break;
+                    }
+                    case 1:{
+                        ROS_INFO("UNREACHABLE POSITION: move on to the next block\n\n");
+                        state=block_request;
+                        break;
+                    }
+                    case 2:{
+                        ROS_INFO("ERROR IN MOTION: move on to a different planning (passing through an intermediate safe point)\n\n");
+                        if(final_end!=1)next_state=block_request;
+                        else next_state=no_more_blocks;
+                        state=motion_error;
+                        break;
+
+                    }
+                }         
+
+            break;
+        }
         
+        case motion_error:{
+            ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
+            ur5::ServiceMessage srv;
+            srv.request.phief1=phief[0];
+            srv.request.phief2=phief[1];
+            srv.request.phief3=phief[2];
+
+            srv.request.xef1=0;
+            srv.request.xef2=0.38;
+            srv.request.xef3=xef[2];
+            srv.request.gripper=gripper;
+            srv.request.end=final_end;
+            srv.request.ack=0;
+
+            
+            
+                
+            while(!service.call(srv)); 
+            error=srv.response.error;
+            if(error==2)exit (1);
+            state=next_state;
+             
+            break;
+        }
         
         case no_more_blocks:
             {//stato fantoccio in quanto appena arriva a questo stato si esce dal ciclo while e non viene nemmeno "invocato" 
@@ -400,29 +590,4 @@ void gestisciStato(stato &state,ros::NodeHandle n){
                 break;
             }
     }
-}
-
-bool sendPoseToMotionPlanner(ur5::tp2mp::Request &req,ur5::tp2mp::Response &res){     //funzione di risposta al motion planner
-    //invio valori al motion planner
-    iteration=req.n_request;
-    res.phief1=phief[0];
-    res.phief2=phief[1];
-    res.phief3=phief[2];
-    res.xef1=xef[0];
-    res.xef2=xef[1];
-    res.xef3=xef[2];
-    res.end=final_end;
-
-    res.gripper=gripper;        
-
-
-   
-
-    for(int i=0;i<3;i++){                               
-        ROS_INFO("xef[%d] sent: [%f]\n",i,xef[i] );         //possiamo anche togliere questa parte di stampa semplicemente dice i valori inviati
-    }
-    for(int i=0;i<3;i++){
-        ROS_INFO("phief[%d] sent: [%f]\n",i,phief[i] );
-    }
-    return true;
 }

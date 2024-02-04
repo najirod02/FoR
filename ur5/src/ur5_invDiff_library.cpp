@@ -3,10 +3,10 @@
  * defined in the ur5_invDiff_library.h file
  */
 
-#include "ur5_invDiff_library/ur5_invDiff_library.h"
+#include "ur5/ur5_invDiff_library.h"
 
 
-InverseDifferential::InverseDifferential(int argc_, char** argv_, double* xef_, double* phief_, double gripper_left, double gripper_right) :
+InverseDifferential::InverseDifferential(int argc_, char** argv_) :
 joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"}
 {
     //just copy the argc and argv of main to initialize the nodes in talker function
@@ -39,25 +39,39 @@ joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1
                         0, 0, -1, WORLD_TO_ROBOT_Z,
                         0, 0, 0, 1;
 
-    //read the position and euler values of final pose
-    xef << xef_[0], xef_[1], xef_[2];
-    phief << phief_[0], phief_[1], phief_[2];
-    gripper << gripper_left, gripper_right;
-    
+
+    talker();    
+}
+
+
+//ROS functions
+bool InverseDifferential::motionPlannerToTaskPlannerServiceResponse(ur5::ServiceMessage::Request &req,ur5::ServiceMessage::Response &res){
+    //invio valori al motion planner tra cui se c'è stato un errore e l'ack per sincronizzare i due nodi
+    final_end=req.end;            //variabile che serve per vedere se non ci sono più blocchi da prendere
+    ack2=req.ack;
+
+    xef << req.xef1, req.xef2, req.xef3;
+    phief << req.phief1, req.phief2, req.phief3;
+    gripper << req.gripper, req.gripper;
+
     //convert in robot frame and check if position is inside working area
     worldToRobotFrame(xef, phief);
     xef *= SCALAR_FACTOR;
 
     cout << "request received\n" << xef.transpose() << endl << phief.transpose() << endl;
 
-    if(!checkWorkArea(xef)){cout << "The position is not inside the working area\n"; return;}
+    if(!checkWorkArea(xef)){cout << "The position is not inside the working area\n"; return false;}
 
-    //start talker
-    talker();    
+    //if everything ok, calculate trajectory
+    bool result = invDiff();
+
+    //res.ack=0;
+    
+    res.error= result ? 0 : 1;
+    
+    return result;
 }
 
-
-//ROS functions
 void InverseDifferential::send_des_jstate(ros::Publisher joint_pub, VectorXd q_des){
     std_msgs::Float64MultiArray msg;
 
@@ -81,7 +95,23 @@ void InverseDifferential::receive_jstate(const sensor_msgs::JointState::ConstPtr
     }
 }
 
-void InverseDifferential::talker(){
+int InverseDifferential::talker(){
+    ros::init(argc, argv, "motion_planner");
+    ros::NodeHandle n;
+
+    while(final_end==0 && ros::ok()){
+        error=0;
+        // service_test::tp2mp srv3;
+        ros::ServiceServer service4 = n.advertiseService("tp_mp_communication", &InverseDifferential::motionPlannerToTaskPlannerServiceResponse, this);
+        while(ack2!=ack && ros::ok()){
+            ros::spinOnce();
+        }
+        ack2=1;
+    }
+    return 0;
+}
+
+bool InverseDifferential::invDiff(){
     //AnonymousName adds a random suffix to the node name
     ros::init(argc, argv, "ur5_invDiff", ros::init_options::AnonymousName);
     ros::NodeHandle n;
@@ -96,7 +126,7 @@ void InverseDifferential::talker(){
     Matrix3d Rf = eulerAnglesToRotationMatrix(phief);
     MatrixXd TH0 = ur5Inverse(xef, Rf);
     MatrixXd M = purgeNanColumn(TH0);
-    if(M.cols() == 0) {cout << "Motion not possible\n"; return;}
+    if(M.cols() == 0) {cout << "Motion not possible\n"; return false;}
 
     //print initial q state
     VectorXd qstart(6);
@@ -205,14 +235,8 @@ void InverseDifferential::talker(){
     }
     std::cout << "]" << std::endl;
 
-    if(checkWorkArea(q)){cout << "The robot's configuration is inside the working area\n\n";}
-    else {cout << "The robot's configuration is NOT inside the working area\n"; exit(1);}
-
-    Vector3d xef1;
-    ur5Direct(xef1,Rf,v1.col(99));
-    Vector3d phief1=rotationMatrixToEulerAngles(Rf);
-    cout<<"actual position  "<<xef1.transpose()<<" nominal "<<xef.transpose()<<endl;
-    cout<<"actual orientation "<<phief1.transpose()<<" nominal "<<phief.transpose()<<endl;
+    if(checkWorkArea(q)){cout << "The robot's configuration is inside the working area\n\n"; return true;}
+    else {cout << "The robot's configuration is NOT inside the working area\n"; return false;}
 }
 
 
@@ -238,12 +262,6 @@ Vector3d InverseDifferential::rotationMatrixToEulerAngles(const Matrix3d& rotati
 
 Matrix3d InverseDifferential::eulerAnglesToRotationMatrix(const Vector3d& euler) {
     Matrix3d rotationMatrix;
-
-    /*
-    double roll = (abs(euler[0] - M_PI) < 1e-6) ? 0.0 : euler[0];
-    double pitch = (abs(euler[1] - M_PI) < 1e-6) ? 0.0 : euler[1];
-    double yaw = (abs(euler[2] - M_PI) < 1e-6) ? 0.0 : euler[2];
-    */
     
     double roll = euler[0];
     double pitch = euler[1];

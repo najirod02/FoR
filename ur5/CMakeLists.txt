@@ -13,13 +13,13 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   sensor_msgs
   message_generation
-  ur5_invDiff_library
+  #ur5_invDiff_library
   roslaunch
 )
 
-roslaunch_add_file_check(launch)
-
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+
+roslaunch_add_file_check(launch)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -71,8 +71,7 @@ find_package(Eigen3 3.3 REQUIRED NO_MODULE)
  ## Generate services in the 'srv' folder
 add_service_files(
   FILES
-  tp2mp.srv
-  ACK.srv
+  ServiceMessage.srv
 )
 
 ## Generate added messages and services with any dependencies listed here
@@ -128,12 +127,16 @@ catkin_package(
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
+  ${Eigen3_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
-# add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/ur5.cpp
-# )
+add_library(
+  ur5_invDiff_library 
+  src/ur5_invDiff_library.cpp
+)
+
+target_link_libraries(ur5_invDiff_library ${catkin_LIBRARIES} Eigen3::Eigen)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -148,8 +151,8 @@ include_directories(
 add_executable(motion_planner src/motion_planner.cpp)
 add_executable(task_planner src/task_planner.cpp)
 
-#add_dependencies(motion_planner ur5_gencpp)
-#add_dependencies(task_planner ur5_gencpp)
+#add_dependencies(motion_planner robot_gencpp)
+#add_dependencies(task_planner robot_gencpp)
 
 target_link_libraries(motion_planner
 ${catkin_LIBRARIES}
@@ -160,7 +163,9 @@ ur5_invDiff_library
 target_link_libraries(task_planner
 ${catkin_LIBRARIES}
 Eigen3::Eigen
+ur5_invDiff_library
 )
+
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the

@@ -11,6 +11,7 @@
 #include "ros/ros.h"
 #include "std_msgs/Float64MultiArray.h"
 #include "sensor_msgs/JointState.h"
+#include "ur5/ServiceMessage.h"    
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
@@ -72,10 +73,21 @@ class InverseDifferential
     char **argv;
     int argc;
 
+    const int ack=0;           //questi due valori servono per sincronizzare i service dei due nodi
+    int ack2=1;
+    int error=0;         //da cambiare nel caso ci sia un errore nella posizione del blocco o nel motion
+    int final_end=0; //variabile per controllare se si è arrivati all'ultimo blocco
+
     public:
-        InverseDifferential(int argc_, char** argv_, double* xef_, double* phief_, double gripper_left, double gripper_right);
+        InverseDifferential(int argc_, char** argv_);
 
         //ROS functions
+
+        /**
+         * a service that receives the pose in which the robot must arrive
+         * and responds if the position has been reached or not
+         */
+        bool motionPlannerToTaskPlannerServiceResponse(ur5::ServiceMessage::Request &req,ur5::ServiceMessage::Response &res);
 
         /**
          * a simple functions that cretes the message and publish it through the 
@@ -94,7 +106,12 @@ class InverseDifferential
          * main function,
          * initialize nodes, reading and sending the new joint states
          */
-        void talker();
+        int talker();
+
+        /**
+         * main function that starts the computation of the trajectory
+         */
+        bool invDiff();
 
 
         //Convertion functions
