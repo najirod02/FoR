@@ -20,6 +20,8 @@
 #include <sstream>
 #include <string.h>
 #include <math.h>
+#include <list>
+#include <iostream>
 
 using namespace std;
 using namespace Eigen;
@@ -40,9 +42,12 @@ class InverseDifferential
 
     const static int JOINT_NAMES = 6;
     const double SCALAR_FACTOR = 1.0;
-    const double DAMPING_FACTOR = pow(10, 0.0578125);//used in the damped pseudoinverse matrix
+    //used in the damped pseudoinverse matrix
+    //const double DAMPING_FACTOR = pow(10, -1.15);//determinant method
+    //TODO: diminuire valore andando verso i negativi ultimo utilizzato -1
+    const double DAMPING_FACTOR = pow(10, -1);//using eigenvalues method
     const double ALMOST_ZERO = 1e-7;//threshold when a values is recognized as zero
-    const int RATE = 1000;
+    const int RATE = 1000;//set to 100 to slow down
 
     //range for working area    
     //in the robot frame
@@ -73,10 +78,11 @@ class InverseDifferential
     char **argv;
     int argc;
 
-    const int ack=0;           //questi due valori servono per sincronizzare i service dei due nodi
+    //ack/ack2 are used to syncronize the service 
+    const int ack=0;
     int ack2=1;
-    int error=0;         //da cambiare nel caso ci sia un errore nella posizione del blocco o nel motion
-    int final_end=0; //variabile per controllare se si è arrivati all'ultimo blocco
+    int error=0;//no error at start
+    int final_end=0;//!=0 if there are no other blocks
 
     public:
         InverseDifferential(int argc_, char** argv_);

@@ -13,7 +13,6 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   sensor_msgs
   message_generation
-  #ur5_invDiff_library
   roslaunch
 )
 
@@ -114,7 +113,7 @@ generate_messages(
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS roscpp rospy std_msgs ur5_invDiff_library
+  CATKIN_DEPENDS roscpp rospy std_msgs ur5_motion_library ur5_task_library
   DEPENDS system_lib
 )
 
@@ -132,11 +131,17 @@ include_directories(
 
 ## Declare a C++ library
 add_library(
-  ur5_invDiff_library 
-  src/ur5_invDiff_library.cpp
+  ur5_motion_library 
+  src/ur5_motion_library.cpp
 )
 
-target_link_libraries(ur5_invDiff_library ${catkin_LIBRARIES} Eigen3::Eigen)
+add_library(
+  ur5_task_library
+  src/ur5_task_library.cpp
+)
+
+target_link_libraries(ur5_motion_library ${catkin_LIBRARIES} Eigen3::Eigen)
+target_link_libraries(ur5_task_library ${catkin_LIBRARIES} Eigen3::Eigen)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -157,13 +162,13 @@ add_executable(task_planner src/task_planner.cpp)
 target_link_libraries(motion_planner
 ${catkin_LIBRARIES}
 Eigen3::Eigen
-ur5_invDiff_library
+ur5_motion_library
 )
 
 target_link_libraries(task_planner
 ${catkin_LIBRARIES}
 Eigen3::Eigen
-ur5_invDiff_library
+ur5_task_library
 )
 
 

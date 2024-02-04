@@ -61,7 +61,8 @@
   <exec_depend>roscpp</exec_depend>
   <exec_depend>rospy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
-  <depend>ur5_invDiff_library</depend>
+  <depend>ur5_motion_library</depend>
+  <depend>ur5_task_library</depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

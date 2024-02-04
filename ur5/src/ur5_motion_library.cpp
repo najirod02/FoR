@@ -3,8 +3,7 @@
  * defined in the ur5_invDiff_library.h file
  */
 
-#include "ur5/ur5_invDiff_library.h"
-
+#include "ur5/ur5_motion_library.h"
 
 InverseDifferential::InverseDifferential(int argc_, char** argv_) :
 joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"}
@@ -39,7 +38,6 @@ joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1
                         0, 0, -1, WORLD_TO_ROBOT_Z,
                         0, 0, 0, 1;
 
-
     talker();    
 }
 
@@ -58,17 +56,19 @@ bool InverseDifferential::motionPlannerToTaskPlannerServiceResponse(ur5::Service
     worldToRobotFrame(xef, phief);
     xef *= SCALAR_FACTOR;
 
-    cout << "request received\n" << xef.transpose() << endl << phief.transpose() << endl;
+    ROS_INFO("Request received");
+    //cout << "request received\n" << xef.transpose() << endl << phief.transpose() << endl;
 
-    if(!checkWorkArea(xef)){cout << "The position is not inside the working area\n"; return false;}
+    if(!checkWorkArea(xef)){ROS_INFO("The request is not inside the working area"); return false;}
 
     //if everything ok, calculate trajectory
+    //and give back feedback
     bool result = invDiff();
+    res.error= result ? 0 : 2;//0 - ok; 2 - error in motion
 
-    //res.ack=0;
-    
-    res.error= result ? 0 : 1;
-    
+    if(result) ROS_INFO("Motion completed");
+    else ROS_INFO("Error in motion");
+
     return result;
 }
 
@@ -103,10 +103,8 @@ int InverseDifferential::talker(){
         error=0;
         // service_test::tp2mp srv3;
         ros::ServiceServer service4 = n.advertiseService("tp_mp_communication", &InverseDifferential::motionPlannerToTaskPlannerServiceResponse, this);
-        while(ack2!=ack && ros::ok()){
-            ros::spinOnce();
-        }
-        ack2=1;
+        cout << "final_end: " << final_end << endl;
+        ros::spin();
     }
     return 0;
 }
@@ -126,16 +124,13 @@ bool InverseDifferential::invDiff(){
     Matrix3d Rf = eulerAnglesToRotationMatrix(phief);
     MatrixXd TH0 = ur5Inverse(xef, Rf);
     MatrixXd M = purgeNanColumn(TH0);
-    if(M.cols() == 0) {cout << "Motion not possible\n"; return false;}
+    if(M.cols() == 0) {ROS_INFO("Motion not possible"); return false;}
 
     //print initial q state
     VectorXd qstart(6);
-    std::cout << "initial q [ ";
     for(int i=0; i<q.size(); ++i){
-        std::cout << q[i] << " ";
         qstart(i) = q(i);
     }
-    std::cout << "]" << std::endl;
 
     //get initial pose of the robot knowing the initial joint states
     Matrix3d Re;
@@ -147,15 +142,6 @@ bool InverseDifferential::invDiff(){
     q0 = rotationMatrixToQuaternion(Re);
     //from the desired final configuration
     qf = rotationMatrixToQuaternion(Rf);
-
-    //for debugging
-    //cout << "qstart\n" << qstart << endl;
-    //cout << "Re0\n" << Re << endl;
-    //cout << "phie0\n" << phie0.transpose() << endl;
-    //cout << "Rf\n" << Rf << endl;
-    //cout << "phief\n" << phief.transpose() << endl << endl;
-    //cout << "q0\n" << q0.coeffs().transpose() << endl << "qf\n" << qf.coeffs().transpose() << endl << endl << endl;
-    
 
     //calculate the trajectory of the robot by a function of time
     //and quaternions
@@ -188,7 +174,7 @@ bool InverseDifferential::invDiff(){
     }
 
     //send values to joints
-    cout << "Starting motion\n";
+    ROS_INFO("Starting motion");
     int i=0;
 
     //first send the final configuration with the gripper values only
@@ -198,7 +184,6 @@ bool InverseDifferential::invDiff(){
 
     //send all the calculated configurations
     while(ros::ok()){
-        //cout << endl << i+1 << " " << v1.col(i) << endl;
         send_des_jstate(joint_pub, v1.col(i++));
         ros::spinOnce();
         loop_rate.sleep();
@@ -211,32 +196,12 @@ bool InverseDifferential::invDiff(){
     VectorXd lastConfiguration = v1.col(((Tf - Tb) / deltaT) - 1);
     fixWirstJointLimits(lastConfiguration);
     send_des_jstate(joint_pub, lastConfiguration);
-    ros::spinOnce();
-
-    //printing list l solutions
-    //to print the Th values of matlab
-    /*
-    k = 1;
-    for(auto i:l){
-        VectorXd v1(6);
-        v1 = i;
-        cout<<k<<":      ";
-        printVector(v1);
-        k++;
-    }
-    //*/
-
-    //print final q state
     ros::Duration(1).sleep();
     ros::spinOnce();
-    std::cout << "final q [ ";
-    for(int i=0; i<q.size(); ++i){
-        std::cout << q[i] << " ";
-    }
-    std::cout << "]" << std::endl;
 
-    if(checkWorkArea(q)){cout << "The robot's configuration is inside the working area\n\n"; return true;}
-    else {cout << "The robot's configuration is NOT inside the working area\n"; return false;}
+    //check if the final position is valid
+    if(!checkWorkArea(q))return false;
+    return true;
 }
 
 
@@ -437,12 +402,26 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
     VectorXd dotQ(6);
     MatrixXd identity = MatrixXd::Identity(6,6);
 
+    /*
+    double determinant = abs(J.determinant());
+    if(determinant<=1e-1){ 
+        cout<<"NEAR SINGULARITY"<<endl;                                                    
+        J = J.transpose()*((J * J.transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());
+        dotQ=J*idk;
+    }
+    else{
+        dotQ = J.partialPivLu().solve(idk);
+    }*/
+
+    
     //dyanmic damping factor using eigenvalues
+    //in this case the DAMPING_FACTOR = pow(10, 0.0578125);
     VectorXd eigenvalues = (J * J.transpose()).eigenvalues().real();
     double dampingFactor = DAMPING_FACTOR / eigenvalues.maxCoeff();
     J = J.transpose() * ((J * J.transpose() + pow(dampingFactor, 2) * identity).inverse());
     dotQ = J * idk;
     
+
     return dotQ;
 }
 
