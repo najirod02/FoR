@@ -6,7 +6,7 @@ int main(int argc, char** argv){
 
     //set initial state and number of blocks to be moved
     state=start;
-    n_classes=5;
+    n_classes=5;///< set the number of blocks that are positioned on the workspace
 
     iteration=1;            //used for synchronization of the service
     actual_iteration=0;

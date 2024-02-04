@@ -22,9 +22,9 @@ joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1
     //set values of the D-H parameters
     //A - D -> distance between joints
     //ALPHA -> rotation about x
-    A << 0, -0.425, -0.3922, 0, 0, 0;
-    D << 0.1625, 0, 0, 0.1333, 0.0997, 0.0996;
-    ALPHA << M_PI/2, 0, 0, M_PI/2, -M_PI/2, 0;
+    A << 0, -0.425, -0.3922, 0, 0, 0;///!<the D-H parameter
+    D << 0.1625, 0, 0, 0.1333, 0.0997, 0.0996;///< the D-H parameter
+    ALPHA << M_PI/2, 0, 0, M_PI/2, -M_PI/2, 0;///< the D-H parameter
     A *= SCALAR_FACTOR;
     D *= SCALAR_FACTOR;
     
@@ -36,16 +36,15 @@ joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1
     WORLD_TO_ROBOT << 1, 0, 0, WORLD_TO_ROBOT_X,
                         0, -1, 0, WORLD_TO_ROBOT_Y,
                         0, 0, -1, WORLD_TO_ROBOT_Z,
-                        0, 0, 0, 1;
+                        0, 0, 0, 1;///< rotation matrix to convert the coordinates of the world frame into robot frame
 
     talker();    
 }
 
 
 //ROS functions
-bool InverseDifferential::motionPlannerToTaskPlannerServiceResponse(ur5::ServiceMessage::Request &req,ur5::ServiceMessage::Response &res){
-    //invio valori al motion planner tra cui se c'è stato un errore e l'ack per sincronizzare i due nodi
-    final_end=req.end;            //variabile che serve per vedere se non ci sono più blocchi da prendere
+bool InverseDifferential::motionPlannerToTaskPlannerServiceResponse(ur5::ServiceMessage::Request &req, ur5::ServiceMessage::Response &res){
+    final_end=req.end;
     ack2=req.ack;
 
     xef << req.xef1, req.xef2, req.xef3;
@@ -85,7 +84,7 @@ void InverseDifferential::send_des_jstate(ros::Publisher joint_pub, VectorXd q_d
     joint_pub.publish(msg);
 }
 
-void InverseDifferential::receive_jstate(const sensor_msgs::JointState::ConstPtr& msg){
+void InverseDifferential::receive_jstate(const sensor_msgs::JointState::ConstPtr &msg){
     for(int msg_idx=0; msg_idx<msg->name.size(); ++msg_idx){
         for(int joint_idx=0; joint_idx<JOINT_NAMES; ++joint_idx){
             if(joint_names[joint_idx].compare(msg->name[msg_idx]) == 0){
@@ -160,7 +159,7 @@ bool InverseDifferential::invDiff(){
     
     list <VectorXd> l;
 
-    l = invDiffKinematicControlSimCompleteQuaternion(qstart,T, Kp, Kq); 
+    l = invDiffKinematicControlSimCompleteQuaternion(qstart, T, Kp, Kq); 
 
     MatrixXd v1;
     v1.resize(JOINT_NAMES, (Tf - Tb) / deltaT);
@@ -206,7 +205,7 @@ bool InverseDifferential::invDiff(){
 
 
 //Convertion functions
-Quaterniond InverseDifferential::eulerAnglesToQuaternion(const Vector3d& euler) {
+Quaterniond InverseDifferential::eulerAnglesToQuaternion(const Vector3d &euler) {
     Quaterniond quaternion;
 
     quaternion=eulerAnglesToRotationMatrix(euler);
@@ -214,7 +213,7 @@ Quaterniond InverseDifferential::eulerAnglesToQuaternion(const Vector3d& euler) 
     return quaternion;
 }
 
-Vector3d InverseDifferential::rotationMatrixToEulerAngles(const Matrix3d& rotationMatrix) {
+Vector3d InverseDifferential::rotationMatrixToEulerAngles(const Matrix3d &rotationMatrix) {
     Vector3d euler;
 
     euler=rotationMatrix.eulerAngles(0,1,2);
@@ -225,7 +224,7 @@ Vector3d InverseDifferential::rotationMatrixToEulerAngles(const Matrix3d& rotati
     return euler;
 }
 
-Matrix3d InverseDifferential::eulerAnglesToRotationMatrix(const Vector3d& euler) {
+Matrix3d InverseDifferential::eulerAnglesToRotationMatrix(const Vector3d &euler) {
     Matrix3d rotationMatrix;
     
     double roll = euler[0];
@@ -263,13 +262,13 @@ Matrix3d InverseDifferential::eulerAnglesToRotationMatrix(const Vector3d& euler)
     return rotationMatrix;
 }
 
-Quaterniond InverseDifferential::rotationMatrixToQuaternion(const Matrix3d& rotationMatrix) {
+Quaterniond InverseDifferential::rotationMatrixToQuaternion(const Matrix3d &rotationMatrix) {
     Quaterniond quaternion;
     quaternion=rotationMatrix;
     return quaternion;
 }
 
-void InverseDifferential::worldToRobotFrame(Vector3d& coords, Vector3d& euler){
+void InverseDifferential::worldToRobotFrame(Vector3d &coords, Vector3d &euler){
     Vector4d position;
     position << coords[0], coords[1], coords[2], 1;
 
@@ -286,7 +285,7 @@ void InverseDifferential::worldToRobotFrame(Vector3d& coords, Vector3d& euler){
 
 
 //Inverse differential functions
-void InverseDifferential::ur5Direct(Vector3d &xe, Matrix3d &Re,VectorXd q_des){
+void InverseDifferential::ur5Direct(Vector3d &xe, Matrix3d &Re, VectorXd q_des){
     
     Matrix4d t10 = getRotationMatrix(q_des(0), ALPHA(0), D(0), A(0));
     Matrix4d t21 = getRotationMatrix(q_des(1), ALPHA(1), D(1), A(1));
@@ -334,7 +333,7 @@ MatrixXd InverseDifferential::ur5Jac(VectorXd v){
     Vector3d p5=t50.block(0,3,3,1);
     Vector3d P=t60.block(0,3,3,1);
 
-    MatrixXd J;
+    MatrixXd J;///< the jacobian matrix of the ur5 manipulator
     J.resize(6,6);
 
     J.col(0)<<(z0.cross(P-p0)), z0;
@@ -347,7 +346,7 @@ MatrixXd InverseDifferential::ur5Jac(VectorXd v){
     return J;  
 }
 
-list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0,VectorXd T,Matrix3d Kp,Matrix3d Kphi){
+list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion(VectorXd TH0, VectorXd T, Matrix3d Kp, Matrix3d Kphi){
     Vector3d xe;
     Matrix3d Re;
     VectorXd qk(6);
@@ -373,7 +372,7 @@ list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion
         Quaterniond qd_t=qd(t);
         VectorXd dotqk(6);
         
-        dotqk = invDiffKinematicControlCompleteQuaternion(qk,xe,xd_t,vd,omegad,qe,qd_t,Kp, Kphi); 
+        dotqk = invDiffKinematicControlCompleteQuaternion(qk, xe, xd_t, vd, omegad, qe, qd_t, Kp, Kphi); 
         VectorXd qk1(6);
         qk1= qk + dotqk*deltaT;
 
@@ -383,7 +382,7 @@ list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion
     return q;
 }
 
-VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd qk,Vector3d xe,Vector3d xd,Vector3d vd,Vector3d omegad,Quaterniond qe, Quaterniond qd,Matrix3d Kp,Matrix3d Kphi){
+VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd qk, Vector3d xe, Vector3d xd, Vector3d vd, Vector3d omegad, Quaterniond qe, Quaterniond qd, Matrix3d Kp, Matrix3d Kphi){
     MatrixXd J=ur5Jac(qk);     
     
     Quaterniond qp = qd*qe.conjugate();
@@ -709,6 +708,8 @@ Matrix4d InverseDifferential::getRotationMatrix(double th, double alpha, double 
         sin(th), cos(th)*cos(alpha), -cos(th)*sin(alpha), a*sin(th),
         0, sin(alpha), cos(alpha), d,
         0, 0, 0, 1;
+
+    
     for(int i=0;i<rotation.rows();i++){
         for(int j=0;j<rotation.cols();j++){
             angleCorrection(rotation(i,j));
@@ -736,7 +737,7 @@ MatrixXd InverseDifferential::purgeNanColumn(MatrixXd matrix){
 
 
 //Other functions
-bool InverseDifferential::checkWorkArea(const Vector3d& position){
+bool InverseDifferential::checkWorkArea(const Vector3d &position){
     //approximation to 3 decimal to exlude precision errors
     double x = floor((position[0]/SCALAR_FACTOR)*100)/100;
     double y = floor((position[1]/SCALAR_FACTOR)*100)/100;
@@ -753,7 +754,7 @@ bool InverseDifferential::checkWorkArea(const Vector3d& position){
     return false;
 }
 
-bool InverseDifferential::checkWorkArea(const VectorXd& joints){
+bool InverseDifferential::checkWorkArea(const VectorXd &joints){
     //use direct kinematic to find end effector position
     Vector3d xe;
     Matrix3d Re;
@@ -774,7 +775,7 @@ bool InverseDifferential::almostZero(double value){
     return abs(value)<ALMOST_ZERO;
 };
 
-void InverseDifferential::angleCorrection(double & angle){
+void InverseDifferential::angleCorrection(double &angle){
     if(almostZero(angle*pow(10,9))){
         angle=0;
     }
