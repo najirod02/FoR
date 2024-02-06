@@ -1,5 +1,6 @@
 #include "ur5/ur5_task_library.h"
 
+//FIXME: capire perchè non vada il punto intermedio 
 int main(int argc, char** argv){
     ros::init(argc, argv, "task_planner");
     ros::NodeHandle n;
@@ -11,9 +12,11 @@ int main(int argc, char** argv){
     iteration=1;            //used for synchronization of the service
     actual_iteration=0;
 
-    while(state!=no_more_blocks && ros::ok()){
+    while(next_state!=no_more_blocks && ros::ok()){
         gestisciStato(state,n); 
     }
     
+    ROS_INFO("Terminating task planner");
+
     return 0;
 }

@@ -381,35 +381,34 @@ void gestisciStato(stato &state,ros::NodeHandle n){
             srv.request.xef2=xef[1];
             srv.request.xef3=xef[2];
             srv.request.gripper=gripper;
-            srv.request.end=final_end;
+            srv.request.end=0;
             srv.request.ack=0;
             
-                
             while(!service.call(srv)); 
             error=srv.response.error;
 
             switch(error){
-                    case 0:{
-                        ROS_INFO("Motion planning executed correctly!\n\n"); 
-                        if(final_end!=1){ROS_INFO("block_request"); state=block_request;}
-                        else {ROS_INFO("no_more_blocks"); state=no_more_blocks;}
-                        break;
-                    }
-                    case 1:{
-                        ROS_INFO("UNREACHABLE POSITION: move on to the next block\n\n");
-                        ROS_INFO("block_request");
-                        state=block_request;
-                        break;
-                    }
-                    case 2:{
-                        ROS_INFO("ERROR IN MOTION: move on to a different planning (passing through an intermediate safe point)\n\n");
-                        if(final_end!=1){ROS_INFO("block_request"); state=block_request;}
-                        else {ROS_INFO("no_more_blocks"); state=no_more_blocks;}
-                        state=motion_error;
-                        break;
+                case 0:{
+                    ROS_INFO("Motion planning executed correctly!\n\n"); 
+                    if(final_end!=1){ROS_INFO("block_request"); state=block_request;}
+                    else {ROS_INFO("no_more_blocks"); state=no_more_blocks;}
+                    break;
+                }
+                case 1:{
+                    ROS_INFO("UNREACHABLE POSITION: move on to the next block\n\n");
+                    ROS_INFO("block_request");
+                    state=block_request;
+                    break;
+                }
+                case 2:{
+                    ROS_INFO("ERROR IN MOTION: move on to a different planning (passing through an intermediate safe point)\n\n");
+                    if(final_end!=1){ROS_INFO("block_request"); state=block_request;}
+                    else {ROS_INFO("no_more_blocks"); state=no_more_blocks;}
+                    state=motion_error;
+                    break;
 
-                    }
-                }         
+                }
+            }         
 
             break;
         }
@@ -418,36 +417,47 @@ void gestisciStato(stato &state,ros::NodeHandle n){
             //go through safe point in case of motion errors
             ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
             ur5::ServiceMessage srv;
-            srv.request.phief1=phief[0];
-            srv.request.phief2=phief[1];
-            srv.request.phief3=phief[2];
+            srv.request.phief1=0;
+            srv.request.phief2=0;
+            srv.request.phief3=0;
 
-            srv.request.xef1=0;
-            srv.request.xef2=0.38;
-            srv.request.xef3=xef[2];
-            srv.request.gripper=gripper;
+            srv.request.xef1=0.5;
+            srv.request.xef2=0.7;
+            srv.request.xef3=SAFE_Z_MOTION;
+            srv.request.gripper=GRIPPER_CLOSURE;
             srv.request.end=final_end;
             srv.request.ack=0;
    
             while(!service.call(srv)); 
-            error=srv.response.error;
-            if(error==2)exit (1);
+            //error=srv.response.error;
             state=next_state;
              
+            ROS_INFO("going to next_state");
             break;
         }
         
-        case no_more_blocks:
-            {
-                //this is the last state, terminate the node
-                ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
-                ur5::ServiceMessage srv;
-                srv.request.end=1;
-                srv.request.ack=0;
-                
-                service.call(srv);
-                ROS_INFO("All blocks moved");
-                break;
-            }
+        case no_more_blocks:{
+            //this is the last state, terminate the node
+            //move the manipulator to the homing position
+            ros::ServiceClient service = n.serviceClient<ur5::ServiceMessage>("tp_mp_communication");
+            ur5::ServiceMessage srv;
+            srv.request.phief1=0;
+            srv.request.phief2=0;
+            srv.request.phief3=0;
+
+            srv.request.xef1=0.3;
+            srv.request.xef2=0.6;
+            srv.request.xef3=1.3;
+            srv.request.gripper=0;
+            srv.request.end=1;
+            srv.request.ack=0;
+            
+            service.call(srv);
+
+            ROS_INFO("All blocks moved");
+            next_state = no_more_blocks;
+            
+            break;
+        }
     }
 }

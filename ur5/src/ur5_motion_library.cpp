@@ -68,7 +68,9 @@ bool InverseDifferential::motionPlannerToTaskPlannerServiceResponse(ur5::Service
     if(result) ROS_INFO("Motion completed");
     else ROS_INFO("Error in motion");
 
-    return result;
+    if(final_end != 0) {ROS_INFO("Terminating motion planner"); ros::shutdown();}
+
+    return true;
 }
 
 void InverseDifferential::send_des_jstate(ros::Publisher joint_pub, VectorXd q_des){
@@ -97,20 +99,18 @@ void InverseDifferential::receive_jstate(const sensor_msgs::JointState::ConstPtr
 int InverseDifferential::talker(){
     ros::init(argc, argv, "motion_planner");
     ros::NodeHandle n;
-
-    while(final_end==0 && ros::ok()){
-        error=0;
+    
+    while(final_end == 0 && ros::ok()){
         ros::ServiceServer service4 = n.advertiseService("tp_mp_communication", &InverseDifferential::motionPlannerToTaskPlannerServiceResponse, this);
+        error=0;
         ros::spin();
     }
 
-    ROS_INFO("terminating motion planner");
     return 0;
 }
 
 bool InverseDifferential::invDiff(){
-    //AnonymousName adds a random suffix to the node name
-    ros::init(argc, argv, "ur5_invDiff", ros::init_options::AnonymousName);
+    ros::init(argc, argv, "ur5_invDiff");
     ros::NodeHandle n;
     ros::Publisher joint_pub = n.advertise<std_msgs::Float64MultiArray>(TOPIC, 1000);
     ros::Subscriber sub = n.subscribe(TOPIC_SUB, 1000, &InverseDifferential::receive_jstate, this);
@@ -160,6 +160,14 @@ bool InverseDifferential::invDiff(){
     list <VectorXd> l;
 
     l = invDiffKinematicControlSimCompleteQuaternion(qstart, T, Kp, Kq); 
+
+    /*
+    //uncomment for intermediate point
+    if(error == 2){
+        //during the computation, we reached a singularity
+        return false;
+    }
+    //*/
 
     MatrixXd v1;
     v1.resize(JOINT_NAMES, (Tf - Tb) / deltaT);
@@ -402,24 +410,24 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
     MatrixXd identity = MatrixXd::Identity(6,6);
 
     /*
+    //uncomment for intermediate point
     double determinant = abs(J.determinant());
-    if(determinant<=1e-1){ 
-        cout<<"NEAR SINGULARITY"<<endl;                                                    
-        J = J.transpose()*((J * J.transpose() + pow(DAMPING_FACTOR,2)*identity).inverse());
-        dotQ=J*idk;
+    if(determinant<=1e-3){ 
+        //cout<<"NEAR SINGULARITY"<<endl;                                                    
+        error = 2;//using intermediate point
     }
     else{
         dotQ = J.partialPivLu().solve(idk);
-    }*/
+    }
+    //*/
 
     
     //dyanmic damping factor using eigenvalues
-    //in this case the DAMPING_FACTOR = pow(10, 0.0578125);
     VectorXd eigenvalues = (J * J.transpose()).eigenvalues().real();
     double dampingFactor = DAMPING_FACTOR / eigenvalues.maxCoeff();
     J = J.transpose() * ((J * J.transpose() + pow(dampingFactor, 2) * identity).inverse());
     dotQ = J * idk;
-    
+    //*/
 
     return dotQ;
 }
