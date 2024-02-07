@@ -33,17 +33,13 @@ joint_names{"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1
     xe_intermediate<<0.1,-0.3,0.6;//in case of error use this point as a safe homing!
     xe_intermediate*=SCALAR_FACTOR;
 
-    WORLD_TO_ROBOT << 1, 0, 0, WORLD_TO_ROBOT_X,
-                        0, -1, 0, WORLD_TO_ROBOT_Y,
-                        0, 0, -1, WORLD_TO_ROBOT_Z,
-                        0, 0, 0, 1;///< rotation matrix to convert the coordinates of the world frame into robot frame
-
     talker();    
 }
 
 
 //ROS functions
 bool InverseDifferential::motionPlannerToTaskPlannerServiceResponse(ur5::ServiceMessage::Request &req, ur5::ServiceMessage::Response &res){
+    error=0;
     final_end=req.end;
     ack2=req.ack;
 
@@ -51,14 +47,14 @@ bool InverseDifferential::motionPlannerToTaskPlannerServiceResponse(ur5::Service
     phief << req.phief1, req.phief2, req.phief3;
     gripper << req.gripper, req.gripper;
 
-    //convert in robot frame and check if position is inside working area
-    worldToRobotFrame(xef, phief);
-    xef *= SCALAR_FACTOR;
-
     ROS_INFO("Request received");
     //cout << "request received\n" << xef.transpose() << endl << phief.transpose() << endl;
 
-    if(!checkWorkArea(xef)){ROS_INFO("The request is not inside the working area"); return false;}
+    if(!checkWorkArea(xef)){
+        ROS_INFO("The request is not inside the working area"); 
+        res.error = 1;//block unreachable 
+        return true;
+    }
 
     //if everything ok, calculate trajectory
     //and give back feedback
@@ -69,7 +65,6 @@ bool InverseDifferential::motionPlannerToTaskPlannerServiceResponse(ur5::Service
     else ROS_INFO("Error in motion");
 
     if(final_end != 0) {ROS_INFO("Terminating motion planner"); ros::shutdown();}
-
     return true;
 }
 
@@ -102,7 +97,6 @@ int InverseDifferential::talker(){
     
     while(final_end == 0 && ros::ok()){
         ros::ServiceServer service4 = n.advertiseService("tp_mp_communication", &InverseDifferential::motionPlannerToTaskPlannerServiceResponse, this);
-        error=0;
         ros::spin();
     }
 
@@ -161,13 +155,12 @@ bool InverseDifferential::invDiff(){
 
     l = invDiffKinematicControlSimCompleteQuaternion(qstart, T, Kp, Kq); 
 
-    /*
-    //uncomment for intermediate point
+    #if INTERMEDIATE_POINT == 1
     if(error == 2){
         //during the computation, we reached a singularity
         return false;
     }
-    //*/
+    #endif
 
     MatrixXd v1;
     v1.resize(JOINT_NAMES, (Tf - Tb) / deltaT);
@@ -276,21 +269,6 @@ Quaterniond InverseDifferential::rotationMatrixToQuaternion(const Matrix3d &rota
     return quaternion;
 }
 
-void InverseDifferential::worldToRobotFrame(Vector3d &coords, Vector3d &euler){
-    Vector4d position;
-    position << coords[0], coords[1], coords[2], 1;
-
-    coords = (WORLD_TO_ROBOT*position).block(0,0,1,3);
-    
-    Eigen::Matrix3d R_matrix_base = eulerAnglesToRotationMatrix(euler);
-     Eigen::Matrix3d R_matrix_second = WORLD_TO_ROBOT.block<3, 3>(0, 0) * R_matrix_base;
-
-    Eigen::Vector3d rpy_angles_second_frame = rotationMatrixToEulerAngles(R_matrix_second);
-    euler(0) = rpy_angles_second_frame(0) - M_PI;
-    euler(1) = rpy_angles_second_frame(1);
-    euler(2) = rpy_angles_second_frame(2);
-}
-
 
 //Inverse differential functions
 void InverseDifferential::ur5Direct(Vector3d &xe, Matrix3d &Re, VectorXd q_des){
@@ -363,7 +341,8 @@ list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion
     list <VectorXd> q;
     q.push_back(qk);
     
-    for(int l=1;l<T.size()-1;l++){
+    //remove second condition when NOT using intermediate point
+    for(int l=1;l<T.size()-1 && error != 2;l++){
         t=T(l);
         ur5Direct(xe,Re,qk);
         
@@ -381,6 +360,7 @@ list<VectorXd> InverseDifferential::invDiffKinematicControlSimCompleteQuaternion
         VectorXd dotqk(6);
         
         dotqk = invDiffKinematicControlCompleteQuaternion(qk, xe, xd_t, vd, omegad, qe, qd_t, Kp, Kphi); 
+           
         VectorXd qk1(6);
         qk1= qk + dotqk*deltaT;
 
@@ -409,25 +389,25 @@ VectorXd InverseDifferential::invDiffKinematicControlCompleteQuaternion(VectorXd
     VectorXd dotQ(6);
     MatrixXd identity = MatrixXd::Identity(6,6);
 
-    /*
-    //uncomment for intermediate point
     double determinant = abs(J.determinant());
+    
+    #if INTERMEDIATE_POINT == 1
     if(determinant<=1e-3){ 
         //cout<<"NEAR SINGULARITY"<<endl;                                                    
         error = 2;//using intermediate point
     }
-    else{
+    dotQ = J.partialPivLu().solve(idk);
+    #else
+    //dyanmic damping factor using eigenvalues
+    if(determinant<1e-2){
+        VectorXd eigenvalues = (J * J.transpose()).eigenvalues().real();
+        double dampingFactor = DAMPING_FACTOR / eigenvalues.maxCoeff();
+        J = J.transpose() * ((J * J.transpose() + pow(dampingFactor, 2) * identity).inverse());
+        dotQ = J * idk;
+    }else {
         dotQ = J.partialPivLu().solve(idk);
     }
-    //*/
-
-    
-    //dyanmic damping factor using eigenvalues
-    VectorXd eigenvalues = (J * J.transpose()).eigenvalues().real();
-    double dampingFactor = DAMPING_FACTOR / eigenvalues.maxCoeff();
-    J = J.transpose() * ((J * J.transpose() + pow(dampingFactor, 2) * identity).inverse());
-    dotQ = J * idk;
-    //*/
+    #endif
 
     return dotQ;
 }
@@ -474,7 +454,6 @@ MatrixXd InverseDifferential::ur5Inverse(Vector3d &p60, Matrix3d &Re){
     double p50xy = hypot(p50(1), p50(0));
                 
                 
-    //
     if(p50xy < D(3)){
         MatrixXd ones(6,1);
         ones.setOnes();
@@ -770,13 +749,6 @@ bool InverseDifferential::checkWorkArea(const VectorXd &joints){
     ur5Direct(xe, Re, joints);
 
     return checkWorkArea(xe);
-}
-
-void InverseDifferential::printVector(VectorXd v){
-    for (int cb=0;cb<v.size();cb++){
-        cout <<v(cb)<<"  ";
-    }
-    cout<<endl<<endl;
 }
 
 bool InverseDifferential::almostZero(double value){

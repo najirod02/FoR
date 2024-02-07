@@ -37,10 +37,11 @@ enum stato{
     no_more_blocks///< no more blocks, terminate
 };
 
-const double GRIPPER_CLOSURE=-0.064;///< value of closed gripper
+const double GRIPPER_CLOSE=-0.0639;///< value of closed gripper
 const double GRIPPER_OPEN = 0.3;///< value of open gripper
-const double GRASPING_HEIGHT=1.02;///< safe height to take the block
-const double SAFE_Z_MOTION = 1.25;///< used for the intermediate movement between initial and final position
+const double GRASPING_HEIGHT=1.025;///< safe height to take the block
+const double SAFE_Z_MOTION = 0.6;///< used for the intermediate movement between initial and final position
+const double SCALAR_FACTOR = 1.0;
 
 Vector3d euler,position;       
 Vector3d pos[5];
@@ -66,6 +67,14 @@ stato next_state;///< next state used if some problems arrises
 int final_end=0;
 
 /**
+ * transformation from world to robot frame
+*/
+const double WORLD_TO_ROBOT_X = -0.5;
+const double WORLD_TO_ROBOT_Y = 0.35;
+const double WORLD_TO_ROBOT_Z = 1.75;
+Matrix4d WORLD_TO_ROBOT;///< rotation matrix to convert the coordinates of the world frame into robot frame
+
+/**
  * the function implements a state machine where we get the pose of 
  * a block and make requests to the motion in order to grab and move the block
  * in another known position
@@ -74,6 +83,19 @@ int final_end=0;
  * @param n the node handler to make request to the motion service
  */
 void gestisciStato(stato &state,ros::NodeHandle n);
+
+/**
+ * given the pose of a block in the world frame, return the pose of the same
+ * block in the robot frame.
+ * 
+ * The coordinates and orientation has the same unit of gazebo (in meters and radiants)
+ * 
+ * Useful when specifing the block pose w.r.t world frame
+ * 
+ * @param coords vector containing the xyz coordinates
+ * @param euler vector containing the xyz orientation values
+ */
+void worldToRobotFrame(Eigen::Vector3d &coords, Eigen::Vector3d &euler);
 
 
 #endif

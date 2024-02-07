@@ -22,6 +22,7 @@
 #include <math.h>
 #include <list>
 #include <iostream>
+#define INTERMEDIATE_POINT 1///< 0 to use damping factor, 1 to use intermediate point
 
 using namespace std;
 using namespace Eigen;
@@ -40,30 +41,9 @@ class InverseDifferential
 
     const static int JOINT_NAMES = 6;
     const double SCALAR_FACTOR = 1.0;
-    //used in the damped pseudoinverse matrix
-    //const double DAMPING_FACTOR = pow(10, -1.15);//determinant method
     const double DAMPING_FACTOR = pow(10, -1);///< the damping value used in damped pseudoinverse matrix
     const double ALMOST_ZERO = 1e-7;///< threshold when a values is recognized as zero
     const int RATE = 1000;//set to 100 to slow down
-
-    /**
-     * define the workin area of the manipulator
-     * w.r.t the robot frame
-    */
-    const double MAX_X = 0.5;
-    const double MIN_X = -0.5;
-    const double MAX_Y = 0.12;
-    const double MIN_Y = -0.45;
-    const double MAX_Z = 0.733;
-    const double MIN_Z = 0.15;
-
-    /**
-     * transformation from world to robot frame
-    */
-    const double WORLD_TO_ROBOT_X = -0.5;
-    const double WORLD_TO_ROBOT_Y = 0.35;
-    const double WORLD_TO_ROBOT_Z = 1.75;
-    Matrix4d WORLD_TO_ROBOT;
 
     //global values
     Quaterniond q0,qf;
@@ -84,6 +64,17 @@ class InverseDifferential
     int ack2=1;
     int error=0;//no error at start
     int final_end=0;//dfferent from 0 if there are no other blocks
+
+    /**
+     * define the workin area of the manipulator
+     * w.r.t the robot frame
+    */
+    const double MAX_X = 0.5;
+    const double MIN_X = -0.5;
+    const double MAX_Y = 0.12;
+    const double MIN_Y = -0.45;
+    const double MAX_Z = 0.733;
+    const double MIN_Z = 0.15;
 
     public:
         /**
@@ -176,19 +167,6 @@ class InverseDifferential
          * @return the corresponding quaternion
         */
         Eigen::Quaterniond rotationMatrixToQuaternion(const Eigen::Matrix3d &rotationMatrix);
-
-        /**
-         * given the pose of a block in the world frame, return the pose of the same
-         * block in the robot frame.
-         * 
-         * The coordinates and orientation has the same unit of gazebo (in meters and radiants)
-         * 
-         * Useful when specifing the block pose w.r.t world frame
-         * 
-         * @param coords vector containing the xyz coordinates
-         * @param euler vector containing the xyz orientation values
-         */
-        void worldToRobotFrame(Eigen::Vector3d &coords, Eigen::Vector3d &euler);
 
 
         //Inverse differential functions
@@ -312,13 +290,6 @@ class InverseDifferential
          * @return true if inside the working area, false otherwise
          */
         bool checkWorkArea(const Eigen::VectorXd &joints);
-
-        /**
-         * print the values of a generic vector
-         * 
-         * @param v vector of doubles
-         */
-        void printVector(Eigen::VectorXd v);
 
         /**
          * function that checks if a value is close to zero
